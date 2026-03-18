@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Palm Line SVG Editor</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a1a; color: #fff; font-family: system-ui, sans-serif; display: flex; height: 100vh; }
+
+  .sidebar {
+    width: 340px;
+    background: #111128;
+    border-right: 1px solid #2a2a4a;
+    overflow-y: auto;
+    padding: 16px;
+    flex-shrink: 0;
+  }
+  .sidebar h2 { font-size: 16px; color: #a78bfa; margin-bottom: 12px; }
+  .sidebar h3 { font-size: 13px; color: #888; margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+
+  .layer {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 8px; margin-bottom: 4px;
+    cursor: pointer; border: 1.5px solid transparent;
+    transition: all 0.15s;
+  }
+  .layer:hover { background: rgba(255,255,255,0.05); }
+  .layer.active { border-color: var(--color); background: rgba(255,255,255,0.08); }
+  .layer .dot { width: 12px; height: 12px; border-radius: 6px; flex-shrink: 0; }
+  .layer .name { flex: 1; font-size: 13px; font-weight: 600; }
+  .layer .vis-btn {
+    width: 24px; height: 24px; border: none; background: none;
+    color: #666; cursor: pointer; font-size: 14px; border-radius: 4px;
+  }
+  .layer .vis-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+  .path-editor {
+    margin-top: 16px; padding: 12px; background: #0a0a1a;
+    border-radius: 10px; border: 1px solid #2a2a4a;
+  }
+  .path-editor label { font-size: 11px; color: #888; display: block; margin-bottom: 6px; }
+  .path-editor textarea {
+    width: 100%; height: 100px; background: #06060e; color: #e2e8f0;
+    border: 1px solid #333; border-radius: 6px; padding: 8px;
+    font-family: 'Cascadia Code', monospace; font-size: 11px;
+    resize: vertical;
+  }
+  .path-editor .props { display: flex; gap: 8px; margin-top: 8px; }
+  .path-editor .props input {
+    flex: 1; background: #06060e; border: 1px solid #333;
+    color: #fff; padding: 6px 8px; border-radius: 6px; font-size: 12px;
+  }
+  .path-editor .props label { font-size: 10px; color: #666; margin-bottom: 2px; }
+
+  .btn-row { display: flex; gap: 8px; margin-top: 12px; }
+  .btn {
+    flex: 1; padding: 8px; border: none; border-radius: 8px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: #7c3aed; color: #fff; }
+  .btn-primary:hover { background: #6d28d9; }
+  .btn-secondary { background: #1e1e3a; color: #a78bfa; border: 1px solid #333; }
+  .btn-secondary:hover { background: #2a2a4a; }
+  .btn-danger { background: #7f1d1d; color: #fca5a5; }
+  .btn-danger:hover { background: #991b1b; }
+
+  .canvas-area {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; position: relative; overflow: hidden;
+  }
+  .canvas-area svg {
+    border: 1px solid #2a2a4a; border-radius: 12px;
+    background: #06060e; cursor: crosshair;
+  }
+
+  .toolbar {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px; background: #111128; padding: 6px 12px;
+    border-radius: 10px; border: 1px solid #2a2a4a; z-index: 10;
+  }
+  .toolbar button {
+    padding: 6px 12px; border: 1px solid #333; background: #1a1a3a;
+    color: #ccc; border-radius: 6px; font-size: 11px; cursor: pointer;
+    font-weight: 600;
+  }
+  .toolbar button:hover { background: #2a2a5a; color: #fff; }
+  .toolbar button.active { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+
+  .control-point {
+    cursor: grab; transition: r 0.1s;
+  }
+  .control-point:hover { r: 8; }
+
+  .status-bar {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: #111128; padding: 6px 16px; border-radius: 8px;
+    border: 1px solid #2a2a4a; font-size: 11px; color: #888;
+  }
+
+  .export-modal {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 100; align-items: center; justify-content: center;
+  }
+  .export-modal.show { display: flex; }
+  .export-content {
+    background: #111128; border-radius: 16px; padding: 24px;
+    width: 600px; max-height: 80vh; overflow-y: auto;
+    border: 1px solid #2a2a4a;
+  }
+  .export-content h2 { margin-bottom: 12px; }
+  .export-content pre {
+    background: #06060e; padding: 16px; border-radius: 8px;
+    font-size: 11px; color: #a78bfa; overflow-x: auto;
+    white-space: pre-wrap; border: 1px solid #333;
+    max-height: 400px; overflow-y: auto;
+  }
+  .copy-btn {
+    margin-top: 12px; padding: 10px 20px; background: #7c3aed;
+    color: #fff; border: none; border-radius: 8px; cursor: pointer;
+    font-weight: 600;
+  }
+  .close-btn {
+    position: absolute; top: 12px; right: 16px; background: none;
+    border: none; color: #888; font-size: 20px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>Palm Line Editor</h2>
+
+  <h3>Layers</h3>
+  <div id="layerList"></div>
+
+  <div class="btn-row">
+    <button class="btn btn-secondary" onclick="addNewLine()">+ Thêm đường</button>
+  </div>
+
+  <div id="pathEditorPanel" class="path-editor" style="display:none">
+    <label>SVG Path (d attribute):</label>
+    <textarea id="pathInput" oninput="updatePathFromText()"></textarea>
+    <div class="props">
+      <div style="flex:1">
+        <label>Màu sắc</label>
+        <input type="color" id="colorInput" oninput="updateColor(this.value)">
+      </div>
+      <div style="flex:1">
+        <label>Độ dày</label>
+        <input type="number" id="strokeInput" value="3" min="1" max="10" step="0.5" oninput="updateStroke(this.value)">
+      </div>
+      <div style="flex:1">
+        <label>Opacity</label>
+        <input type="number" id="opacityInput" value="1" min="0" max="1" step="0.05" oninput="updateOpacity(this.value)">
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn btn-danger" onclick="deleteLayer()">Xoá</button>
+    </div>
+  </div>
+
+  <h3 style="margin-top: 24px">Export</h3>
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="exportAll()">Export Code</button>
+  </div>
+</div>
+
+<div class="canvas-area">
+  <div class="toolbar">
+    <button id="modeDrag" class="active" onclick="setMode('drag')">Di chuyển điểm</button>
+    <button id="modeAdd" onclick="setMode('add')">Thêm điểm</button>
+    <button id="modeView" onclick="setMode('view')">Xem</button>
+    <button onclick="resetZoom()">Reset zoom</button>
+  </div>
+
+  <svg id="canvas" width="500" height="660" viewBox="0 0 300 400">
+    <!-- Grid -->
+    <defs>
+      <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+        <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/>
+      </pattern>
+    </defs>
+    <rect width="300" height="400" fill="url(#grid)"/>
+
+    <!-- Layers will be rendered here -->
+    <g id="layersGroup"></g>
+
+    <!-- Control points overlay -->
+    <g id="controlPoints"></g>
+  </svg>
+
+  <div class="status-bar" id="statusBar">Nhấp vào layer để chỉnh sửa. Kéo các điểm để thay đổi hình dạng.</div>
+</div>
+
+<!-- Export Modal -->
+<div class="export-modal" id="exportModal">
+  <div class="export-content" style="position:relative">
+    <button class="close-btn" onclick="closeExport()">&times;</button>
+    <h2>Export Code</h2>
+    <p style="color:#888;font-size:12px;margin-bottom:12px">Copy đoạn code này vào palmQuizData.ts</p>
+    <pre id="exportCode"></pre>
+    <button class="copy-btn" onclick="copyExport()">Copy to Clipboard</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DATA - Initialize with current paths from the app
+// ============================================================
+const layers = [
+  {
+    id: 'hand',
+    name: 'Bàn tay (outline)',
+    color: 'rgba(255,255,255,0.5)',
+    strokeWidth: 2,
+    opacity: 1,
+    visible: true,
+    fill: 'none',
+    d: `M 105 390 Q 88 355 82 310 Q 78 280 72 255 Q 60 230 42 195 Q 30 170 28 155 Q 26 140 35 135 Q 44 132 52 145 Q 62 162 70 185 Q 74 195 78 210 Q 80 205 80 185 Q 78 140 76 105 Q 74 75 76 55 Q 78 38 88 36 Q 98 34 102 52 Q 106 75 108 105 Q 110 135 110 165 Q 112 155 112 130 Q 112 90 112 60 Q 112 30 115 18 Q 118 6 128 5 Q 138 4 142 18 Q 146 35 146 60 Q 146 90 145 130 Q 145 155 146 165 Q 148 135 150 105 Q 152 75 156 55 Q 160 38 170 36 Q 180 34 183 52 Q 186 75 184 105 Q 182 140 180 175 Q 182 180 183 185 Q 186 165 192 145 Q 198 125 205 115 Q 212 105 220 110 Q 228 116 222 132 Q 218 148 210 165 Q 200 195 195 215 Q 190 240 192 270 Q 195 310 195 355 Q 195 375 195 390 Z`,
+  },
+  {
+    id: 'heart',
+    name: 'Tâm Đạo (Heart)',
+    color: '#FF6B8A',
+    strokeWidth: 3,
+    opacity: 0.9,
+    visible: true,
+    fill: 'none',
+    d: 'M 210 210 Q 170 198 130 192 Q 100 192 80 198',
+  },
+  {
+    id: 'head',
+    name: 'Trí Đạo (Head)',
+    color: '#4A90D9',
+    strokeWidth: 3,
+    opacity: 0.9,
+    visible: true,
+    fill: 'none',
+    d: 'M 82 235 Q 120 240 155 242 Q 185 238 205 225',
+  },
+  {
+    id: 'life',
+    name: 'Sinh Đạo (Life)',
+    color: '#4CAF50',
+    strokeWidth: 3,
+    opacity: 0.9,
+    visible: true,
+    fill: 'none',
+    d: 'M 92 195 Q 85 240 88 280 Q 92 320 110 355',
+  },
+  {
+    id: 'fate',
+    name: 'Sự Nghiệp (Fate)',
+    color: '#E8A838',
+    strokeWidth: 3,
+    opacity: 0.9,
+    visible: true,
+    fill: 'none',
+    d: 'M 150 380 Q 148 340 148 300 Q 148 260 150 230',
+  },
+];
+
+let activeLayerId = null;
+let mode = 'drag';
+let draggingPoint = null;
+let dragOffset = { x: 0, y: 0 };
+
+// ============================================================
+// PARSING & SERIALIZING SVG PATHS
+// ============================================================
+function parsePath(d) {
+  const points = [];
+  const tokens = d.trim().replace(/,/g, ' ').split(/\s+/);
+  let i = 0;
+  while (i < tokens.length) {
+    const cmd = tokens[i];
+    if (cmd === 'M' || cmd === 'L') {
+      points.push({ cmd, x: parseFloat(tokens[i+1]), y: parseFloat(tokens[i+2]) });
+      i += 3;
+    } else if (cmd === 'Q') {
+      points.push({ cmd, cx: parseFloat(tokens[i+1]), cy: parseFloat(tokens[i+2]), x: parseFloat(tokens[i+3]), y: parseFloat(tokens[i+4]) });
+      i += 5;
+    } else if (cmd === 'C') {
+      points.push({ cmd, cx1: parseFloat(tokens[i+1]), cy1: parseFloat(tokens[i+2]), cx2: parseFloat(tokens[i+3]), cy2: parseFloat(tokens[i+4]), x: parseFloat(tokens[i+5]), y: parseFloat(tokens[i+6]) });
+      i += 7;
+    } else if (cmd === 'Z') {
+      points.push({ cmd: 'Z' });
+      i += 1;
+    } else {
+      i++;
+    }
+  }
+  return points;
+}
+
+function serializePath(points) {
+  return points.map(p => {
+    if (p.cmd === 'M') return `M ${Math.round(p.x)} ${Math.round(p.y)}`;
+    if (p.cmd === 'L') return `L ${Math.round(p.x)} ${Math.round(p.y)}`;
+    if (p.cmd === 'Q') return `Q ${Math.round(p.cx)} ${Math.round(p.cy)} ${Math.round(p.x)} ${Math.round(p.y)}`;
+    if (p.cmd === 'C') return `C ${Math.round(p.cx1)} ${Math.round(p.cy1)} ${Math.round(p.cx2)} ${Math.round(p.cy2)} ${Math.round(p.x)} ${Math.round(p.y)}`;
+    if (p.cmd === 'Z') return 'Z';
+    return '';
+  }).join('\n');
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+function render() {
+  const layersGroup = document.getElementById('layersGroup');
+  const controlPoints = document.getElementById('controlPoints');
+  layersGroup.innerHTML = '';
+  controlPoints.innerHTML = '';
+
+  layers.forEach(layer => {
+    if (!layer.visible) return;
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', layer.d);
+    path.setAttribute('fill', layer.fill || 'none');
+    path.setAttribute('stroke', layer.color);
+    path.setAttribute('stroke-width', layer.strokeWidth);
+    path.setAttribute('opacity', layer.opacity);
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+
+    if (activeLayerId === layer.id) {
+      path.setAttribute('filter', 'drop-shadow(0 0 4px ' + layer.color + ')');
+    }
+
+    layersGroup.appendChild(path);
+  });
+
+  // Draw control points for active layer
+  if (activeLayerId && mode !== 'view') {
+    const layer = layers.find(l => l.id === activeLayerId);
+    if (layer) {
+      const points = parsePath(layer.d);
+      points.forEach((p, idx) => {
+        if (p.cmd === 'Z') return;
+
+        // Main point
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', p.x);
+        circle.setAttribute('cy', p.y);
+        circle.setAttribute('r', 5);
+        circle.setAttribute('fill', layer.color);
+        circle.setAttribute('stroke', '#fff');
+        circle.setAttribute('stroke-width', 1.5);
+        circle.setAttribute('class', 'control-point');
+        circle.dataset.idx = idx;
+        circle.dataset.type = 'main';
+        controlPoints.appendChild(circle);
+
+        // Control points for curves
+        if (p.cmd === 'Q') {
+          // Control point
+          const cp = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          cp.setAttribute('cx', p.cx);
+          cp.setAttribute('cy', p.cy);
+          cp.setAttribute('r', 4);
+          cp.setAttribute('fill', 'transparent');
+          cp.setAttribute('stroke', layer.color);
+          cp.setAttribute('stroke-width', 1);
+          cp.setAttribute('stroke-dasharray', '2,2');
+          cp.setAttribute('class', 'control-point');
+          cp.dataset.idx = idx;
+          cp.dataset.type = 'ctrl';
+          controlPoints.appendChild(cp);
+
+          // Line from prev to ctrl
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          const prev = points[idx - 1];
+          if (prev) {
+            line.setAttribute('x1', prev.x);
+            line.setAttribute('y1', prev.y);
+            line.setAttribute('x2', p.cx);
+            line.setAttribute('y2', p.cy);
+            line.setAttribute('stroke', 'rgba(255,255,255,0.15)');
+            line.setAttribute('stroke-width', 0.5);
+            line.setAttribute('stroke-dasharray', '3,3');
+            controlPoints.appendChild(line);
+          }
+        }
+      });
+    }
+  }
+
+  renderLayerList();
+}
+
+function renderLayerList() {
+  const list = document.getElementById('layerList');
+  list.innerHTML = '';
+
+  layers.forEach(layer => {
+    const el = document.createElement('div');
+    el.className = 'layer' + (activeLayerId === layer.id ? ' active' : '');
+    el.style.setProperty('--color', layer.color);
+    el.innerHTML = `
+      <div class="dot" style="background:${layer.color};opacity:${layer.visible ? 1 : 0.3}"></div>
+      <div class="name" style="opacity:${layer.visible ? 1 : 0.5}">${layer.name}</div>
+      <button class="vis-btn" onclick="event.stopPropagation(); toggleVisibility('${layer.id}')">${layer.visible ? '&#128065;' : '&#128064;'}</button>
+    `;
+    el.onclick = () => selectLayer(layer.id);
+    list.appendChild(el);
+  });
+}
+
+// ============================================================
+// INTERACTIONS
+// ============================================================
+function selectLayer(id) {
+  activeLayerId = id;
+  const layer = layers.find(l => l.id === id);
+  const panel = document.getElementById('pathEditorPanel');
+
+  if (layer) {
+    panel.style.display = 'block';
+    document.getElementById('pathInput').value = layer.d.trim();
+    document.getElementById('colorInput').value = layer.color.startsWith('#') ? layer.color : '#ffffff';
+    document.getElementById('strokeInput').value = layer.strokeWidth;
+    document.getElementById('opacityInput').value = layer.opacity;
+  }
+
+  render();
+  updateStatus(`Đang chỉnh: ${layer?.name || ''}`);
+}
+
+function toggleVisibility(id) {
+  const layer = layers.find(l => l.id === id);
+  if (layer) layer.visible = !layer.visible;
+  render();
+}
+
+function updatePathFromText() {
+  const layer = layers.find(l => l.id === activeLayerId);
+  if (layer) {
+    layer.d = document.getElementById('pathInput').value;
+    render();
+  }
+}
+
+function updateColor(val) {
+  const layer = layers.find(l => l.id === activeLayerId);
+  if (layer) { layer.color = val; render(); }
+}
+
+function updateStroke(val) {
+  const layer = layers.find(l => l.id === activeLayerId);
+  if (layer) { layer.strokeWidth = parseFloat(val); render(); }
+}
+
+function updateOpacity(val) {
+  const layer = layers.find(l => l.id === activeLayerId);
+  if (layer) { layer.opacity = parseFloat(val); render(); }
+}
+
+function deleteLayer() {
+  if (!activeLayerId) return;
+  if (!confirm('Xoá layer này?')) return;
+  const idx = layers.findIndex(l => l.id === activeLayerId);
+  if (idx >= 0) layers.splice(idx, 1);
+  activeLayerId = null;
+  document.getElementById('pathEditorPanel').style.display = 'none';
+  render();
+}
+
+function addNewLine() {
+  const id = 'custom_' + Date.now();
+  layers.push({
+    id,
+    name: 'Đường mới',
+    color: '#ffffff',
+    strokeWidth: 3,
+    opacity: 0.9,
+    visible: true,
+    fill: 'none',
+    d: 'M 100 300 Q 150 280 200 300',
+  });
+  selectLayer(id);
+}
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.toolbar button').forEach(b => b.classList.remove('active'));
+  document.getElementById('mode' + m.charAt(0).toUpperCase() + m.slice(1))?.classList.add('active');
+  render();
+  updateStatus(m === 'drag' ? 'Kéo các điểm để chỉnh hình dạng' : m === 'add' ? 'Click vào đường để thêm điểm' : 'Chế độ xem');
+}
+
+function resetZoom() {
+  document.getElementById('canvas').setAttribute('viewBox', '0 0 300 400');
+}
+
+function updateStatus(text) {
+  document.getElementById('statusBar').textContent = text;
+}
+
+// ============================================================
+// SVG MOUSE INTERACTIONS
+// ============================================================
+const svg = document.getElementById('canvas');
+
+function svgPoint(e) {
+  const pt = svg.createSVGPoint();
+  pt.x = e.clientX;
+  pt.y = e.clientY;
+  const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return { x: svgP.x, y: svgP.y };
+}
+
+svg.addEventListener('mousedown', (e) => {
+  if (mode !== 'drag') return;
+  const target = e.target;
+  if (target.classList.contains('control-point')) {
+    draggingPoint = {
+      idx: parseInt(target.dataset.idx),
+      type: target.dataset.type,
+    };
+    e.preventDefault();
+  }
+});
+
+svg.addEventListener('mousemove', (e) => {
+  const pt = svgPoint(e);
+  updateStatus(`x: ${Math.round(pt.x)}, y: ${Math.round(pt.y)}${draggingPoint ? ' (đang kéo)' : ''}`);
+
+  if (!draggingPoint || !activeLayerId) return;
+
+  const layer = layers.find(l => l.id === activeLayerId);
+  if (!layer) return;
+
+  const points = parsePath(layer.d);
+  const p = points[draggingPoint.idx];
+  if (!p) return;
+
+  if (draggingPoint.type === 'main') {
+    p.x = pt.x;
+    p.y = pt.y;
+  } else if (draggingPoint.type === 'ctrl' && p.cmd === 'Q') {
+    p.cx = pt.x;
+    p.cy = pt.y;
+  }
+
+  layer.d = serializePath(points);
+  document.getElementById('pathInput').value = layer.d;
+  render();
+});
+
+svg.addEventListener('mouseup', () => {
+  draggingPoint = null;
+});
+
+svg.addEventListener('mouseleave', () => {
+  draggingPoint = null;
+});
+
+// Zoom with scroll
+svg.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const vb = svg.getAttribute('viewBox').split(' ').map(Number);
+  const scale = e.deltaY > 0 ? 1.1 : 0.9;
+  const pt = svgPoint(e);
+
+  const newW = vb[2] * scale;
+  const newH = vb[3] * scale;
+  const newX = pt.x - (pt.x - vb[0]) * scale;
+  const newY = pt.y - (pt.y - vb[1]) * scale;
+
+  svg.setAttribute('viewBox', `${newX} ${newY} ${newW} ${newH}`);
+});
+
+// ============================================================
+// EXPORT
+// ============================================================
+function exportAll() {
+  const hand = layers.find(l => l.id === 'hand');
+  const heart = layers.find(l => l.id === 'heart');
+  const head = layers.find(l => l.id === 'head');
+  const life = layers.find(l => l.id === 'life');
+  const fate = layers.find(l => l.id === 'fate');
+
+  let code = `// ===== BASE_HAND_PATH =====\n`;
+  code += `export const BASE_HAND_PATH = \`\n${hand ? hand.d.trim() : ''}\`;\n\n`;
+
+  code += `// ===== REFERENCE_LINE_PATHS =====\n`;
+  code += `export const REFERENCE_LINE_PATHS: Record<string, { d: string; color: string }> = {\n`;
+
+  if (heart) code += `  heart: {\n    d: '${heart.d.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}',\n    color: '${heart.color}',\n  },\n`;
+  if (head) code += `  head: {\n    d: '${head.d.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}',\n    color: '${head.color}',\n  },\n`;
+  if (life) code += `  life: {\n    d: '${life.d.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}',\n    color: '${life.color}',\n  },\n`;
+  if (fate) code += `  fate: {\n    d: '${fate.d.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}',\n    color: '${fate.color}',\n  },\n`;
+
+  code += `};\n`;
+
+  // Custom layers
+  const customs = layers.filter(l => l.id.startsWith('custom_'));
+  if (customs.length > 0) {
+    code += `\n// ===== CUSTOM PATHS =====\n`;
+    customs.forEach(l => {
+      code += `// ${l.name}\n`;
+      code += `{ d: '${l.d.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}', strokeWidth: ${l.strokeWidth}, opacity: ${l.opacity} }\n\n`;
+    });
+  }
+
+  document.getElementById('exportCode').textContent = code;
+  document.getElementById('exportModal').classList.add('show');
+}
+
+function closeExport() {
+  document.getElementById('exportModal').classList.remove('show');
+}
+
+function copyExport() {
+  const text = document.getElementById('exportCode').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy to Clipboard', 2000);
+  });
+}
+
+// ============================================================
+// INIT
+// ============================================================
+render();
+</script>
+</body>
+</html>

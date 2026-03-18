@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz Line Path Editor</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0e0e1a; color:#e0e0e0; font-family:'Segoe UI',sans-serif; padding:16px; }
+h1 { text-align:center; color:#c084fc; margin-bottom:8px; font-size:20px; }
+.tabs { display:flex; gap:8px; justify-content:center; margin-bottom:12px; flex-wrap:wrap; }
+.tab { padding:8px 16px; border-radius:8px; cursor:pointer; border:1px solid #333; background:#1a1a2e; font-size:13px; transition:all .2s; }
+.tab:hover { border-color:#666; }
+.tab.active { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 15%, #1a1a2e); color:var(--accent); font-weight:600; }
+.section-tabs { display:flex; gap:6px; justify-content:center; margin-bottom:16px; }
+.section-tab { padding:6px 14px; border-radius:20px; cursor:pointer; border:1px solid #333; background:#1a1a2e; font-size:12px; }
+.section-tab.active { border-color:var(--section-color); color:var(--section-color); background:color-mix(in srgb, var(--section-color) 12%, #1a1a2e); }
+.editor-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; max-width:900px; margin:0 auto; }
+.option-card { background:#13131f; border:1px solid #2a2a3a; border-radius:12px; padding:12px; }
+.option-card.selected { border-color:var(--accent); box-shadow:0 0 12px color-mix(in srgb, var(--accent) 30%, transparent); }
+.option-label { font-size:12px; color:#aaa; margin-bottom:6px; }
+.option-label strong { color:#e0e0e0; }
+svg.canvas { width:100%; background:#0a0a14; border-radius:8px; cursor:crosshair; }
+.controls { max-width:900px; margin:12px auto 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.controls button { padding:6px 14px; border-radius:8px; border:1px solid #444; background:#1e1e30; color:#e0e0e0; cursor:pointer; font-size:12px; }
+.controls button:hover { border-color:#888; background:#2a2a42; }
+.controls button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.path-input { flex:1; min-width:200px; padding:6px 10px; border-radius:8px; border:1px solid #444; background:#0e0e1a; color:#e0e0e0; font-family:monospace; font-size:11px; }
+.export-area { max-width:900px; margin:16px auto; }
+.export-area textarea { width:100%; height:200px; background:#0a0a14; color:#c084fc; border:1px solid #333; border-radius:8px; padding:10px; font-family:monospace; font-size:11px; resize:vertical; }
+.info { max-width:900px; margin:8px auto; font-size:11px; color:#666; text-align:center; }
+.cp { r:5; fill:#fff; stroke:var(--accent); stroke-width:1.5; cursor:grab; }
+.cp:hover { r:7; }
+.cp.dragging { r:7; fill:var(--accent); }
+</style>
+</head>
+<body>
+<h1>Quiz Line Path Editor</h1>
+<p class="info">Chọn section &rarr; chọn câu hỏi &rarr; kéo thả control points trên từng option. Nhấn "Export Code" để lấy code mới.</p>
+
+<div class="section-tabs" id="sectionTabs"></div>
+<div class="tabs" id="questionTabs"></div>
+<div class="editor-grid" id="grid"></div>
+<div class="controls" id="controls">
+  <button class="primary" onclick="exportCode()">Export Code</button>
+  <button onclick="resetCurrent()">Reset Câu Hiện Tại</button>
+  <button onclick="resetAll()">Reset Tất Cả</button>
+  <span style="font-size:11px;color:#888;margin-left:8px;">Click option card để chọn, kéo control points để chỉnh</span>
+</div>
+<div class="export-area" id="exportArea" style="display:none;">
+  <textarea id="exportText" readonly></textarea>
+</div>
+
+<script>
+const BASE_HAND_PATH = `M 86 309 Q 84 306 81 285 Q 78 267 72 255 Q 60 230 42 195 Q 30 170 28 155 Q 26 140 35 135 Q 44 132 52 145 Q 62 162 70 185 Q 74 195 78 210 Q 80 205 80 185 Q 78 140 76 105 Q 74 75 76 55 Q 78 38 88 36 Q 98 34 102 52 Q 106 75 108 105 Q 110 135 110 165 Q 112 155 112 130 Q 112 90 112 60 Q 112 30 115 18 Q 118 6 128 5 Q 138 4 142 18 Q 146 35 146 60 Q 146 90 145 130 Q 145 155 146 165 Q 148 135 150 105 Q 152 75 156 55 Q 160 38 170 36 Q 180 34 183 52 Q 186 75 184 105 Q 182 140 180 175 Q 182 180 183 185 Q 186 165 192 145 Q 198 125 205 115 Q 212 105 220 110 Q 228 116 222 132 Q 218 148 210 165 Q 200 195 200 194 Q 205 242 207 244 Q 208 277 200 293 Q 193 307 186 313 Z`;
+
+const REF_LINES = {
+  heart: { d: 'M 187 206 Q 170 198 130 192 Q 100 192 98 191', color: '#FF6B8A' },
+  head:  { d: 'M 90 210 Q 119 216 145 233 Q 171 254 180 268', color: '#4A90D9' },
+  life:  { d: 'M 87 215 Q 112 235 121 273 Q 131 295 134 307', color: '#4CAF50' },
+  fate:  { d: 'M 147 305 Q 139 287 137 260 Q 135 231 141 183', color: '#E8A838' },
+};
+
+const SECTIONS = [
+  { id: 'life', name: 'Sinh Đạo', color: '#4CAF50' },
+  { id: 'fate', name: 'Sự Nghiệp', color: '#E8A838' },
+  { id: 'heart', name: 'Tâm Đạo', color: '#FF6B8A' },
+  { id: 'head', name: 'Trí Đạo', color: '#4A90D9' },
+];
+
+// All quiz questions with their option paths
+const QUIZ_DATA = {
+  life: [
+    { id: 'life_q1', text: 'Đường sinh đạo bắt đầu từ đâu?', options: [
+      { id: 'life_q1_a', label: 'Gần ngón cái', paths: [{ d: 'M 85 215 Q 105 240 115 270 Q 125 292 132 307' }] },
+      { id: 'life_q1_b', label: 'Gần ngón trỏ', paths: [{ d: 'M 95 200 Q 108 235 118 265 Q 126 288 132 305' }] },
+      { id: 'life_q1_c', label: 'Giữa ngón cái và ngón trỏ', paths: [{ d: 'M 90 210 Q 108 238 118 268 Q 128 292 134 307' }] },
+      { id: 'life_q1_d', label: 'Rất gần mép bàn tay', paths: [{ d: 'M 80 220 Q 100 248 112 275 Q 122 295 128 310' }] },
+    ]},
+    { id: 'life_q2', text: 'Đường sinh đạo uốn cong thế nào?', options: [
+      { id: 'life_q2_a', label: 'Cong rộng (xa ngón cái)', paths: [{ d: 'M 90 210 Q 115 240 125 270 Q 135 295 140 310' }] },
+      { id: 'life_q2_b', label: 'Cong gần ngón cái', paths: [{ d: 'M 90 210 Q 100 235 108 260 Q 115 280 120 298' }] },
+      { id: 'life_q2_c', label: 'Gần như thẳng', paths: [{ d: 'M 90 210 Q 95 238 100 265 Q 105 285 110 305' }] },
+      { id: 'life_q2_d', label: 'Lượn sóng', paths: [{ d: 'M 90 210 Q 102 230 92 252 Q 85 270 100 290 Q 112 302 125 310' }] },
+    ]},
+    { id: 'life_q3', text: 'Đường sinh đạo dài hay ngắn?', options: [
+      { id: 'life_q3_a', label: 'Dài (đến cổ tay)', paths: [{ d: 'M 90 210 Q 108 240 120 270 Q 130 295 136 310' }] },
+      { id: 'life_q3_b', label: 'Trung bình', paths: [{ d: 'M 90 210 Q 105 238 115 262 Q 122 280 128 295' }] },
+      { id: 'life_q3_c', label: 'Ngắn', paths: [{ d: 'M 90 210 Q 100 230 108 250 Q 112 260 115 272' }] },
+      { id: 'life_q3_d', label: 'Rất dài', paths: [{ d: 'M 90 210 Q 110 245 122 278 Q 132 300 140 313' }] },
+    ]},
+    { id: 'life_q4', text: 'Đường sinh đạo có dấu hiệu gì?', options: [
+      { id: 'life_q4_a', label: 'Rõ ràng, liên tục', paths: [{ d: 'M 90 210 Q 108 240 118 270 Q 128 295 134 307' }] },
+      { id: 'life_q4_b', label: 'Bị đứt đoạn', paths: [{ d: 'M 90 210 Q 100 230 108 252' }, { d: 'M 112 272 Q 122 292 134 307' }] },
+      { id: 'life_q4_c', label: 'Nhiều đường song song', paths: [{ d: 'M 90 210 Q 108 240 118 270 Q 128 295 134 307' }, { d: 'M 96 215 Q 114 242 124 270 Q 132 295 138 307' }] },
+      { id: 'life_q4_d', label: 'Có nhánh rẽ', paths: [{ d: 'M 90 210 Q 108 240 118 270 Q 128 295 134 307' }, { d: 'M 118 270 Q 126 268 132 262' }, { d: 'M 128 290 Q 135 288 140 282' }] },
+    ]},
+  ],
+  fate: [
+    { id: 'fate_q1', text: 'Đường sự nghiệp bắt đầu từ đâu?', options: [
+      { id: 'fate_q1_a', label: 'Từ cổ tay thẳng lên', paths: [{ d: 'M 147 305 Q 144 280 142 255 Q 140 225 141 183' }] },
+      { id: 'fate_q1_b', label: 'Từ giữa lòng bàn tay', paths: [{ d: 'M 147 275 Q 144 258 142 240 Q 140 218 141 183' }] },
+      { id: 'fate_q1_c', label: 'Từ đường sinh đạo', paths: [{ d: 'M 115 275 Q 128 260 135 242 Q 138 222 141 183' }] },
+      { id: 'fate_q1_d', label: 'Không có đường sự nghiệp', paths: [{ d: 'M 147 280 Q 146 275 145 270', opacity: 0.2 }] },
+    ]},
+    { id: 'fate_q2', text: 'Đường sự nghiệp thẳng hay cong?', options: [
+      { id: 'fate_q2_a', label: 'Rõ và thẳng', paths: [{ d: 'M 147 305 L 141 183' }] },
+      { id: 'fate_q2_b', label: 'Cong về phía ngón trỏ', paths: [{ d: 'M 147 305 Q 138 265 128 235 Q 118 210 108 195' }] },
+      { id: 'fate_q2_c', label: 'Cong về phía ngón út', paths: [{ d: 'M 147 305 Q 152 265 160 235 Q 168 215 178 200' }] },
+      { id: 'fate_q2_d', label: 'Lượn sóng / zig zag', paths: [{ d: 'M 147 305 Q 142 280 150 258 Q 156 240 144 222 Q 138 210 141 183' }] },
+    ]},
+    { id: 'fate_q3', text: 'Đường sự nghiệp dày hay mỏng?', options: [
+      { id: 'fate_q3_a', label: 'Dày và rõ ràng', paths: [{ d: 'M 147 305 Q 143 275 141 248 Q 139 222 141 183' }] },
+      { id: 'fate_q3_b', label: 'Nhạt và mờ', paths: [{ d: 'M 147 305 Q 143 275 141 248 Q 139 222 141 183', opacity: 0.3 }] },
+      { id: 'fate_q3_c', label: 'Đoạn đầu rõ, đoạn sau mờ', paths: [{ d: 'M 147 305 Q 143 280 142 262' }, { d: 'M 141 242 Q 140 218 141 183', opacity: 0.35 }] },
+      { id: 'fate_q3_d', label: 'Đoạn đầu mờ, đoạn sau rõ', paths: [{ d: 'M 147 305 Q 143 280 142 262', opacity: 0.35 }, { d: 'M 141 242 Q 140 218 141 183' }] },
+    ]},
+    { id: 'fate_q4', text: 'Đường sự nghiệp có đặc điểm gì?', options: [
+      { id: 'fate_q4_a', label: 'Liên tục, không đứt', paths: [{ d: 'M 147 305 Q 143 275 141 248 Q 139 222 141 183' }] },
+      { id: 'fate_q4_b', label: 'Bị đứt đoạn', paths: [{ d: 'M 147 305 Q 143 280 142 262' }, { d: 'M 141 242 Q 140 218 141 183' }] },
+      { id: 'fate_q4_c', label: 'Cắt đường sinh đạo', paths: [{ d: 'M 147 305 Q 132 270 112 248 Q 100 238 88 225' }] },
+      { id: 'fate_q4_d', label: 'Tách khỏi đường sinh đạo', paths: [{ d: 'M 147 305 Q 143 275 141 248 Q 139 222 141 183' }, { d: 'M 87 215 Q 112 235 121 273 Q 131 295 134 307', opacity: 0.25, refLine: 'life' }] },
+    ]},
+  ],
+  heart: [
+    { id: 'heart_q1', text: 'Đường tâm đạo kết thúc ở đâu?', options: [
+      { id: 'heart_q1_a', label: 'Kéo dài đến ngón trỏ', paths: [{ d: 'M 210 210 Q 170 198 130 192 Q 110 190 108 185' }] },
+      { id: 'heart_q1_b', label: 'Dưới ngón giữa', paths: [{ d: 'M 210 210 Q 170 198 145 192 Q 135 188 132 180' }] },
+      { id: 'heart_q1_c', label: 'Giữa ngón trỏ và giữa', paths: [{ d: 'M 210 210 Q 170 198 135 190 Q 120 186 118 182' }] },
+      { id: 'heart_q1_d', label: 'Chạy dài qua lòng bàn tay', paths: [{ d: 'M 210 210 Q 170 198 130 195 Q 100 195 80 200' }] },
+    ]},
+    { id: 'heart_q2', text: 'Đường tâm đạo cong, thẳng hay lượn sóng?', options: [
+      { id: 'heart_q2_a', label: 'Cong hướng lên', paths: [{ d: 'M 210 210 Q 160 185 120 182 Q 95 185 80 195' }] },
+      { id: 'heart_q2_b', label: 'Thẳng và ngắn', paths: [{ d: 'M 210 205 L 140 203' }] },
+      { id: 'heart_q2_c', label: 'Lượn sóng', paths: [{ d: 'M 210 208 Q 190 198 170 210 Q 150 220 130 210 Q 110 200 80 208' }] },
+      { id: 'heart_q2_d', label: 'Cong hướng xuống', paths: [{ d: 'M 210 200 Q 160 220 120 222 Q 95 218 80 210' }] },
+    ]},
+    { id: 'heart_q3', text: 'Đường tâm đạo dày hay mỏng?', options: [
+      { id: 'heart_q3_a', label: 'Dày và sâu', paths: [{ d: 'M 210 210 Q 170 195 130 192 Q 100 192 80 198' }] },
+      { id: 'heart_q3_b', label: 'Trung bình', paths: [{ d: 'M 210 210 Q 170 198 145 195 Q 125 195 110 200' }] },
+      { id: 'heart_q3_c', label: 'Nông và mờ', paths: [{ d: 'M 210 210 Q 170 198 130 195 Q 100 195 80 200', opacity: 0.35 }] },
+      { id: 'heart_q3_d', label: 'Rất ngắn', paths: [{ d: 'M 210 210 Q 195 205 185 204 Q 178 204 172 207' }] },
+    ]},
+    { id: 'heart_q4', text: 'Đường tâm đạo có dấu hiệu đặc biệt?', options: [
+      { id: 'heart_q4_a', label: 'Rõ ràng, liên tục', paths: [{ d: 'M 210 210 Q 170 195 130 192 Q 100 192 80 198' }] },
+      { id: 'heart_q4_b', label: 'Có nhánh rẽ', paths: [{ d: 'M 210 210 Q 170 195 130 192 Q 100 192 80 198' }, { d: 'M 145 192 Q 148 180 152 172' }, { d: 'M 120 194 Q 122 184 126 176' }] },
+      { id: 'heart_q4_c', label: 'Bị đứt đoạn', paths: [{ d: 'M 210 210 Q 185 200 165 196' }, { d: 'M 135 194 Q 110 195 80 200' }] },
+      { id: 'heart_q4_d', label: 'Nhiều đường song song', paths: [{ d: 'M 210 210 Q 170 195 130 192 Q 100 192 80 198' }, { d: 'M 210 218 Q 170 204 130 201 Q 100 201 80 207' }] },
+    ]},
+  ],
+  head: [
+    { id: 'head_q1', text: 'Đường trí đạo bắt đầu từ đâu?', options: [
+      { id: 'head_q1_a', label: 'Chạm đường sinh đạo', paths: [{ d: 'M 92 225 Q 120 235 155 238 Q 185 235 205 225' }] },
+      { id: 'head_q1_b', label: 'Tách rời đường sinh đạo', paths: [{ d: 'M 82 218 Q 120 230 155 234 Q 185 230 205 222' }] },
+      { id: 'head_q1_c', label: 'Giao nhau với đường sinh đạo', paths: [{ d: 'M 95 208 Q 105 225 120 235 Q 155 242 205 228' }] },
+      { id: 'head_q1_d', label: 'Bắt đầu từ mép bàn tay', paths: [{ d: 'M 78 235 Q 120 240 155 242 Q 185 238 205 225' }] },
+    ]},
+    { id: 'head_q2', text: 'Đường trí đạo cong hay thẳng?', options: [
+      { id: 'head_q2_a', label: 'Thẳng và nằm ngang', paths: [{ d: 'M 82 235 L 205 232' }] },
+      { id: 'head_q2_b', label: 'Vòng hướng xuống dưới', paths: [{ d: 'M 82 230 Q 125 248 155 262 Q 180 272 200 278' }] },
+      { id: 'head_q2_c', label: 'Hơi cong nhẹ', paths: [{ d: 'M 82 235 Q 120 240 155 242 Q 185 240 205 235' }] },
+      { id: 'head_q2_d', label: 'Lượn sóng', paths: [{ d: 'M 82 235 Q 108 228 130 240 Q 155 252 175 238 Q 195 228 205 235' }] },
+    ]},
+    { id: 'head_q3', text: 'Đường trí đạo dài hay ngắn?', options: [
+      { id: 'head_q3_a', label: 'Dài', paths: [{ d: 'M 82 235 Q 120 240 155 242 Q 185 238 215 228' }] },
+      { id: 'head_q3_b', label: 'Trung bình', paths: [{ d: 'M 82 235 Q 120 240 155 242 Q 175 240 190 235' }] },
+      { id: 'head_q3_c', label: 'Ngắn', paths: [{ d: 'M 82 235 Q 108 240 128 242 Q 145 241 155 238' }] },
+      { id: 'head_q3_d', label: 'Rất dài (qua mép tay)', paths: [{ d: 'M 82 235 Q 120 240 155 242 Q 190 238 220 225' }] },
+    ]},
+    { id: 'head_q4', text: 'Đường trí đạo có đặc điểm gì?', options: [
+      { id: 'head_q4_a', label: 'Rõ ràng, sâu', paths: [{ d: 'M 82 235 Q 120 240 155 242 Q 185 238 205 225' }] },
+      { id: 'head_q4_b', label: 'Có nhánh rẽ', paths: [{ d: 'M 82 235 Q 120 240 155 242 Q 185 238 205 225' }, { d: 'M 155 242 Q 158 254 162 262' }, { d: 'M 180 238 Q 183 248 188 256' }] },
+      { id: 'head_q4_c', label: 'Bị đứt đoạn', paths: [{ d: 'M 82 235 Q 108 240 130 242' }, { d: 'M 165 240 Q 185 236 205 225' }] },
+      { id: 'head_q4_d', label: 'Mờ, nông', paths: [{ d: 'M 82 235 Q 120 240 155 242 Q 185 238 205 225', opacity: 0.35 }] },
+    ]},
+  ],
+};
+
+// Deep clone for reset
+const ORIGINAL_DATA = JSON.parse(JSON.stringify(QUIZ_DATA));
+
+let currentSection = 'life';
+let currentQIdx = 0;
+let selectedOptionIdx = 0;
+let selectedPathIdx = 0;
+let dragging = null; // { optIdx, pathIdx, ptType:'start'|'cp1'|'cp2'|'end', svgEl }
+
+function getAccentColor() {
+  const s = SECTIONS.find(s => s.id === currentSection);
+  return s ? s.color : '#c084fc';
+}
+
+function renderSectionTabs() {
+  const el = document.getElementById('sectionTabs');
+  el.innerHTML = SECTIONS.map(s =>
+    `<div class="section-tab ${s.id===currentSection?'active':''}"
+          style="--section-color:${s.color}"
+          onclick="selectSection('${s.id}')">${s.name}</div>`
+  ).join('');
+}
+
+function renderQuestionTabs() {
+  const el = document.getElementById('questionTabs');
+  const qs = QUIZ_DATA[currentSection];
+  el.innerHTML = qs.map((q, i) =>
+    `<div class="tab ${i===currentQIdx?'active':''}"
+          style="--accent:${getAccentColor()}"
+          onclick="selectQuestion(${i})">Câu ${i+1}</div>`
+  ).join('');
+}
+
+function parsePath(d) {
+  // Parse SVG path into points array: [{type:'M'|'Q'|'L', coords:[x,y,...]}]
+  const tokens = d.trim().split(/\s+/);
+  const pts = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const cmd = tokens[i];
+    if (cmd === 'M' || cmd === 'L') {
+      pts.push({ type: cmd, coords: [parseFloat(tokens[i+1]), parseFloat(tokens[i+2])] });
+      i += 3;
+    } else if (cmd === 'Q') {
+      pts.push({ type: 'Q', coords: [parseFloat(tokens[i+1]), parseFloat(tokens[i+2]), parseFloat(tokens[i+3]), parseFloat(tokens[i+4])] });
+      i += 5;
+    } else if (cmd === 'Z') {
+      pts.push({ type: 'Z', coords: [] });
+      i++;
+    } else {
+      i++;
+    }
+  }
+  return pts;
+}
+
+function buildPath(pts) {
+  return pts.map(p => {
+    if (p.type === 'Z') return 'Z';
+    return p.type + ' ' + p.coords.map(c => Math.round(c)).join(' ');
+  }).join(' ');
+}
+
+function getControlPoints(pts) {
+  // Return array of draggable points: { ptIdx, coordIdx, x, y, label }
+  const cps = [];
+  pts.forEach((p, idx) => {
+    if (p.type === 'M' || p.type === 'L') {
+      cps.push({ ptIdx: idx, coordIdx: 0, x: p.coords[0], y: p.coords[1], label: p.type });
+    } else if (p.type === 'Q') {
+      cps.push({ ptIdx: idx, coordIdx: 0, x: p.coords[0], y: p.coords[1], label: 'CP' });
+      cps.push({ ptIdx: idx, coordIdx: 2, x: p.coords[2], y: p.coords[3], label: 'Q' });
+    }
+  });
+  return cps;
+}
+
+function renderGrid() {
+  const grid = document.getElementById('grid');
+  const q = QUIZ_DATA[currentSection][currentQIdx];
+  const accent = getAccentColor();
+  document.body.style.setProperty('--accent', accent);
+
+  grid.innerHTML = q.options.map((opt, oi) => {
+    const isSelected = oi === selectedOptionIdx;
+    return `<div class="option-card ${isSelected?'selected':''}" style="--accent:${accent}" onclick="selectOption(${oi})">
+      <div class="option-label"><strong>${String.fromCharCode(65+oi)}.</strong> ${opt.label}</div>
+      <svg class="canvas" id="svg_${oi}" viewBox="0 0 300 320"
+           onmousedown="startDrag(event,${oi})" onmousemove="onDrag(event,${oi})" onmouseup="endDrag(event)" onmouseleave="endDrag(event)"
+           ontouchstart="startDrag(event,${oi})" ontouchmove="onDrag(event,${oi})" ontouchend="endDrag(event)">
+        <!-- Hand outline -->
+        <path d="${BASE_HAND_PATH}" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- Dimmed reference lines -->
+        ${Object.entries(REF_LINES).filter(([k]) => k !== currentSection).map(([k, l]) =>
+          `<path d="${l.d}" fill="none" stroke="${l.color}" stroke-width="1.5" stroke-linecap="round" opacity="0.15"/>`
+        ).join('')}
+        <!-- Option paths -->
+        ${opt.paths.map((p, pi) => {
+          const op = p.opacity !== undefined ? p.opacity : 1;
+          const pathColor = p.refLine ? (REF_LINES[p.refLine]?.color || accent) : accent;
+          return `<path d="${p.d}" fill="none" stroke="${pathColor}" stroke-width="2.5" stroke-linecap="round" opacity="${op}" data-opt="${oi}" data-path="${pi}"/>`;
+        }).join('')}
+        <!-- Control points (only for selected option) -->
+        ${isSelected ? opt.paths.map((p, pi) => {
+          const parsed = parsePath(p.d);
+          const cps = getControlPoints(parsed);
+          return cps.map(cp =>
+            `<circle class="cp" cx="${cp.x}" cy="${cp.y}" data-opt="${oi}" data-path="${pi}" data-ptidx="${cp.ptIdx}" data-coordidx="${cp.coordIdx}" style="--accent:${accent}"/>`
+          ).join('');
+        }).join('') : ''}
+      </svg>
+    </div>`;
+  }).join('');
+}
+
+function selectSection(id) {
+  currentSection = id;
+  currentQIdx = 0;
+  selectedOptionIdx = 0;
+  renderSectionTabs();
+  renderQuestionTabs();
+  renderGrid();
+}
+
+function selectQuestion(i) {
+  currentQIdx = i;
+  selectedOptionIdx = 0;
+  renderQuestionTabs();
+  renderGrid();
+}
+
+function selectOption(i) {
+  selectedOptionIdx = i;
+  renderGrid();
+}
+
+function getSVGPoint(evt, svgEl) {
+  const pt = svgEl.createSVGPoint();
+  const touch = evt.touches ? evt.touches[0] : evt;
+  pt.x = touch.clientX;
+  pt.y = touch.clientY;
+  const svgPt = pt.matrixTransform(svgEl.getScreenCTM().inverse());
+  return { x: svgPt.x, y: svgPt.y };
+}
+
+function startDrag(evt, optIdx) {
+  const target = evt.target;
+  if (!target.classList.contains('cp')) return;
+  evt.preventDefault();
+  const pi = parseInt(target.dataset.path);
+  const ptIdx = parseInt(target.dataset.ptidx);
+  const coordIdx = parseInt(target.dataset.coordidx);
+  dragging = { optIdx, pathIdx: pi, ptIdx, coordIdx };
+  target.classList.add('dragging');
+}
+
+function onDrag(evt, optIdx) {
+  if (!dragging || dragging.optIdx !== optIdx) return;
+  evt.preventDefault();
+  const { pathIdx, ptIdx, coordIdx } = dragging;
+
+  // Always get fresh SVG element from DOM (never use stale reference)
+  const svgEl = document.getElementById(`svg_${optIdx}`);
+  if (!svgEl) return;
+  const pos = getSVGPoint(evt, svgEl);
+
+  const q = QUIZ_DATA[currentSection][currentQIdx];
+  const pathObj = q.options[optIdx].paths[pathIdx];
+  const parsed = parsePath(pathObj.d);
+
+  parsed[ptIdx].coords[coordIdx] = pos.x;
+  parsed[ptIdx].coords[coordIdx + 1] = pos.y;
+
+  pathObj.d = buildPath(parsed);
+
+  // Update DOM directly without full re-render (avoids stale element issues)
+  // Update the path element
+  const pathEls = svgEl.querySelectorAll(`path[data-opt="${optIdx}"][data-path="${pathIdx}"]`);
+  pathEls.forEach(el => el.setAttribute('d', pathObj.d));
+
+  // Update all control points for this path
+  const allParsed = parsePath(pathObj.d);
+  const cps = getControlPoints(allParsed);
+  const cpEls = svgEl.querySelectorAll(`circle[data-opt="${optIdx}"][data-path="${pathIdx}"]`);
+  cpEls.forEach((el, i) => {
+    if (cps[i]) {
+      el.setAttribute('cx', cps[i].x);
+      el.setAttribute('cy', cps[i].y);
+    }
+  });
+}
+
+function endDrag(evt) {
+  if (dragging) {
+    dragging = null;
+    document.querySelectorAll('.cp.dragging').forEach(el => el.classList.remove('dragging'));
+  }
+}
+
+function resetCurrent() {
+  const orig = ORIGINAL_DATA[currentSection][currentQIdx];
+  QUIZ_DATA[currentSection][currentQIdx] = JSON.parse(JSON.stringify(orig));
+  renderGrid();
+}
+
+function resetAll() {
+  Object.keys(QUIZ_DATA).forEach(k => {
+    QUIZ_DATA[k] = JSON.parse(JSON.stringify(ORIGINAL_DATA[k]));
+  });
+  renderGrid();
+}
+
+function exportCode() {
+  let code = '';
+
+  Object.entries(QUIZ_DATA).forEach(([sectionId, questions]) => {
+    const sectionName = SECTIONS.find(s => s.id === sectionId)?.name || sectionId;
+    code += `// ==================== ${sectionName} (${sectionId}) ====================\n`;
+
+    questions.forEach(q => {
+      code += `// ${q.id}: ${q.text}\n`;
+      q.options.forEach(opt => {
+        const pathsStr = opt.paths.map(p => {
+          let obj = `{ d: '${p.d}'`;
+          if (p.opacity !== undefined) obj += `, opacity: ${p.opacity}`;
+          obj += ' }';
+          return obj;
+        }).join(',\n          ');
+        code += `  ${opt.id}: linePaths: [${pathsStr}]\n`;
+      });
+      code += '\n';
+    });
+  });
+
+  const el = document.getElementById('exportArea');
+  el.style.display = 'block';
+  document.getElementById('exportText').value = code;
+
+  // Also build a copy-paste ready version for palmQuizData.ts
+  let tsCode = '// === COPY-PASTE vào palmQuizData.ts ===\n\n';
+
+  Object.entries(QUIZ_DATA).forEach(([sectionId, questions]) => {
+    questions.forEach(q => {
+      q.options.forEach(opt => {
+        const pathsStr = opt.paths.map(p => {
+          let obj = `{ d: '${p.d}'`;
+          if (p.opacity !== undefined) obj += `, opacity: ${p.opacity}`;
+          obj += ' }';
+          return obj;
+        }).join(', ');
+        tsCode += `// ${opt.id} (${opt.label})\nlinePaths: [${pathsStr}],\n\n`;
+      });
+    });
+  });
+
+  document.getElementById('exportText').value = tsCode;
+}
+
+// Init
+renderSectionTabs();
+renderQuestionTabs();
+renderGrid();
+</script>
+</body>
+</html>
