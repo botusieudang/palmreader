@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,6 +26,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useReading } from '../context/ReadingContext';
 import { Colors } from '../constants/theme';
+import { FREE_SECTION_COUNT } from '../constants/readingResults';
+import BannerAdComponent from '../components/ads/BannerAdComponent';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -37,15 +40,19 @@ const SECTIONS = [
   { key: 'future', title: 'Tương Lai', icon: 'telescope', color: '#3b82f6' },
 ] as const;
 
-// Glass card with stagger animation
+// Glass card with stagger animation + blur paywall
 function GlassSection({
   section,
   content,
   index,
+  locked,
+  onUnlock,
 }: {
   section: (typeof SECTIONS)[number];
   content: string;
   index: number;
+  locked: boolean;
+  onUnlock: () => void;
 }) {
   const lineWidth = useSharedValue(0);
   useEffect(() => {
@@ -58,6 +65,9 @@ function GlassSection({
     width: `${lineWidth.value}%`,
   }));
 
+  // For locked sections, show first ~60 chars then blur
+  const previewText = locked ? content.substring(0, 80) + '...' : content;
+
   return (
     <Animated.View
       entering={FadeInDown.delay(300 + index * 150)
@@ -68,17 +78,64 @@ function GlassSection({
     >
       {/* Accent line */}
       <Animated.View
-        style={[styles.accentLine, { backgroundColor: `${section.color}30` }, lineStyle]}
+        style={[
+          styles.accentLine,
+          { backgroundColor: `${section.color}30` },
+          lineStyle,
+        ]}
       />
 
       <View style={styles.sectionHeader}>
-        <View style={[styles.sectionIcon, { backgroundColor: `${section.color}15` }]}>
-          <Ionicons name={section.icon as any} size={18} color={section.color} />
+        <View
+          style={[
+            styles.sectionIcon,
+            { backgroundColor: `${section.color}15` },
+          ]}
+        >
+          <Ionicons
+            name={section.icon as any}
+            size={18}
+            color={section.color}
+          />
         </View>
         <Text style={styles.sectionTitle}>{section.title}</Text>
-        <View style={[styles.sectionDot, { backgroundColor: section.color }]} />
+        {locked ? (
+          <Ionicons name="lock-closed" size={14} color={Colors.gold} />
+        ) : (
+          <View
+            style={[styles.sectionDot, { backgroundColor: section.color }]}
+          />
+        )}
       </View>
-      <Text style={styles.sectionContent}>{content}</Text>
+
+      {locked ? (
+        /* LOCKED: preview + blur overlay + unlock button */
+        <View>
+          <Text style={styles.sectionContent}>{previewText}</Text>
+          <LinearGradient
+            colors={["transparent", Colors.overlay, Colors.overlay]}
+            style={styles.blurOverlay}
+          />
+          <TouchableOpacity
+            style={styles.unlockBtn}
+            activeOpacity={0.85}
+            onPress={onUnlock}
+          >
+            <LinearGradient
+              colors={["#d4af37", "#f5d77a"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.unlockGrad}
+            >
+              <Ionicons name="diamond" size={16} color="#1a0f3d" />
+              <Text style={styles.unlockText}>Upgrade Premium</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        /* UNLOCKED: full content */
+        <Text style={styles.sectionContent}>{content}</Text>
+      )}
     </Animated.View>
   );
 }
@@ -90,10 +147,21 @@ export default function ResultScreen() {
 
   const isPalm = mode === 'palm';
   const accentColor = isPalm ? Colors.purple : Colors.pink;
+  const [isVip, setIsVip] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('palm_reader_vip').then((v) => {
+      if (v === 'true') setIsVip(true);
+    }).catch(() => {});
+  }, []);
 
   const handleNewReading = () => {
     clear();
-    router.replace('/');
+    router.replace('/home');
+  };
+
+  const handleUnlock = () => {
+    router.push('/buy-vip');
   };
 
   // Hero symbol animation
@@ -197,27 +265,22 @@ export default function ResultScreen() {
           </Animated.View>
         )}
 
-        {/* Reading Sections */}
+        {/* Reading Sections - first FREE_SECTION_COUNT free, rest locked */}
         {SECTIONS.map((section, index) => {
           const content = result[section.key];
           if (!content) return null;
+          const locked = !isVip && index >= FREE_SECTION_COUNT;
           return (
             <GlassSection
               key={section.key}
               section={section}
               content={content}
               index={index}
+              locked={locked}
+              onUnlock={handleUnlock}
             />
           );
         })}
-
-        {/* Disclaimer */}
-        <Animated.Text
-          entering={FadeInDown.delay(1200).duration(400)}
-          style={styles.disclaimer}
-        >
-          * Kết quả chỉ mang tính chất giải trí, không phải lời khuyên chuyên nghiệp.
-        </Animated.Text>
 
         {/* New Reading Button */}
         <Animated.View
@@ -240,6 +303,11 @@ export default function ResultScreen() {
           </TouchableOpacity>
         </Animated.View>
       </ScrollView>
+
+      {/* Banner Ad bottom */}
+      <View style={styles.bannerAdWrap}>
+        <BannerAdComponent />
+      </View>
     </View>
   );
 }
@@ -247,7 +315,7 @@ export default function ResultScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.bg,
+    backgroundColor: 'transparent',
   },
   centered: {
     alignItems: 'center',
@@ -282,7 +350,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
 
   // Banner
@@ -344,7 +412,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     padding: 18,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
@@ -385,6 +453,33 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 22,
   },
+
+  // Blur paywall overlay
+  blurOverlay: {
+    position: 'absolute',
+    bottom: 36,
+    left: 0,
+    right: 0,
+    height: 80,
+  },
+  unlockBtn: {
+    marginTop: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  unlockGrad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+  },
+  unlockText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1a0f3d',
+  },
+
   disclaimer: {
     fontSize: 11,
     color: Colors.textDim,
@@ -428,5 +523,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 60,
+  },
+  bannerAdWrap: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
 });

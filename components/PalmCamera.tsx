@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,42 +6,70 @@ import {
   TouchableOpacity,
   Dimensions,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Path } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  withSequence,
+  Easing,
+} from 'react-native-reanimated';
 import { Colors } from '../constants/theme';
-import { BASE_HAND_PATH, REFERENCE_LINE_PATHS } from '../constants/palmQuizData';
-import type { Gender } from '../types/reading';
+import type { ReadingMode } from '../types/reading';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-const GUIDE_W = SCREEN_W * 0.82;
-const GUIDE_H = GUIDE_W * 1.1;
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const SCAN_W = SCREEN_W * 0.85;
+const SCAN_H = SCREEN_H * 0.55; // Dọc hơn, cao hơn
+const FACE_FRAME_SIZE = SCREEN_W;
 
-interface PalmCameraProps {
+// Frame images
+const frameFace = require('../assets/images/frame_face.png');
+
+interface CameraProps {
   onCapture: (base64: string, uri: string) => void;
   onCancel: () => void;
-  gender: Gender;
+  mode: ReadingMode;
 }
 
-export default function PalmCamera({ onCapture, onCancel, gender }: PalmCameraProps) {
+export default function PalmCamera({ onCapture, onCancel, mode }: CameraProps) {
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
+  const [facing, setFacing] = useState<'front' | 'back'>(mode === 'palm' ? 'back' : 'front');
 
-  const isFemale = gender === 'female';
+  const isPalm = mode === 'palm';
+  const accentColor = isPalm ? '#8b5cf6' : '#ec4899';
+
+  // Scanner line animation (only for palm)
+  const scanY = useSharedValue(0);
+  const cornerPulse = useSharedValue(1);
+
+  useEffect(() => {
+    if (!isPalm) return;
+    scanY.value = withRepeat(
+      withTiming(SCAN_H - 4, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+      -1, true
+    );
+    cornerPulse.value = withRepeat(
+      withSequence(withTiming(0.6, { duration: 1200 }), withTiming(1, { duration: 1200 })),
+      -1, false
+    );
+  }, []);
+
+  const scanLineStyle = useAnimatedStyle(() => ({ transform: [{ translateY: scanY.value }] }));
+  const cornerStyle = useAnimatedStyle(() => ({ opacity: cornerPulse.value }));
 
   const handleCapture = async () => {
     if (!cameraRef.current || capturing) return;
     setCapturing(true);
     try {
-      const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        quality: 0.7,
-      });
-      if (photo?.base64 && photo?.uri) {
-        onCapture(photo.base64, photo.uri);
-      }
+      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.7 });
+      if (photo?.base64 && photo?.uri) onCapture(photo.base64, photo.uri);
     } catch (e) {
       console.warn('Camera capture error:', e);
     } finally {
@@ -61,7 +89,7 @@ export default function PalmCamera({ onCapture, onCancel, gender }: PalmCameraPr
     return (
       <View style={styles.centered}>
         <Ionicons name="camera-outline" size={48} color={Colors.textMuted} />
-        <Text style={styles.permText}>Cần quyền camera để chụp chỉ tay</Text>
+        <Text style={styles.permText}>Cần quyền camera để chụp</Text>
         <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
           <Text style={styles.permBtnText}>Cấp Quyền</Text>
         </TouchableOpacity>
@@ -77,55 +105,58 @@ export default function PalmCamera({ onCapture, onCancel, gender }: PalmCameraPr
       <CameraView
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
-        facing="back"
+        facing={facing}
+        mirror={false}
       />
 
-      {/* Guide overlay using SVG hand + palm lines */}
-      <View style={styles.overlayContainer} pointerEvents="none">
-        <View style={[styles.guideCenter, isFemale && { transform: [{ scaleX: -1 }] }]}>
-          <Svg width={GUIDE_W} height={GUIDE_H} viewBox="0 0 300 320">
-            {/* Hand outline */}
-            <Path
-              d={BASE_HAND_PATH}
-              fill="none"
-              stroke="rgba(255,255,255,0.5)"
-              strokeWidth={2}
-              strokeLinejoin="round"
-            />
-            {/* 4 palm lines */}
-            {Object.entries(REFERENCE_LINE_PATHS).map(([key, line]) => (
-              <Path
-                key={key}
-                d={line.d}
-                fill="none"
-                stroke={line.color}
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                opacity={0.6}
-              />
-            ))}
-          </Svg>
+      {/* Face frame overlay */}
+      {!isPalm && (
+        <View style={styles.faceFrameContainer} pointerEvents="none">
+          <Image
+            source={frameFace}
+            style={styles.faceFrameImage}
+            resizeMode="contain"
+          />
         </View>
-      </View>
+      )}
+
+      {/* Scanner overlay - palm mode - NO dark background */}
+      {isPalm && (
+        <View style={styles.scanOverlay} pointerEvents="none">
+          <View style={styles.scanArea}>
+            {/* Corner brackets */}
+            <Animated.View style={[StyleSheet.absoluteFill, cornerStyle]}>
+              <View style={[styles.corner, styles.cornerTL, { borderColor: accentColor }]} />
+              <View style={[styles.corner, styles.cornerTR, { borderColor: accentColor }]} />
+              <View style={[styles.corner, styles.cornerBL, { borderColor: accentColor }]} />
+              <View style={[styles.corner, styles.cornerBR, { borderColor: accentColor }]} />
+            </Animated.View>
+            {/* Scan line */}
+            <Animated.View style={[styles.scanLine, scanLineStyle]}>
+              <LinearGradient
+                colors={['transparent', accentColor, 'transparent']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.scanLineGrad}
+              />
+            </Animated.View>
+          </View>
+        </View>
+      )}
 
       {/* Instructions */}
       <View style={styles.instructionBox} pointerEvents="none">
         <Text style={styles.instructionText}>
-          {isFemale
-            ? 'Đặt tay phải vào khung, ngửa lòng bàn tay lên'
-            : 'Đặt tay trái vào khung, ngửa lòng bàn tay lên'}
+          {isPalm
+            ? 'Đặt lòng bàn tay vào khung, ngửa tay lên'
+            : 'Đưa khuôn mặt vào giữa khung'}
         </Text>
       </View>
 
-      {/* Gender badge */}
-      <View style={styles.genderBadge} pointerEvents="none">
-        <Ionicons
-          name={isFemale ? 'female' : 'male'}
-          size={16}
-          color={isFemale ? '#ec4899' : '#8b5cf6'}
-        />
-        <Text style={[styles.genderBadgeText, { color: isFemale ? '#ec4899' : '#8b5cf6' }]}>
-          {isFemale ? 'Nữ · Tay phải' : 'Nam · Tay trái'}
+      {/* Mode badge */}
+      <View style={styles.modeBadge} pointerEvents="none">
+        <Text style={[styles.modeBadgeText, { color: accentColor }]}>
+          {isPalm ? 'Nam: Tay trái - Nữ: Tay phải' : 'Xem Tướng Mặt'}
         </Text>
       </View>
 
@@ -137,129 +168,73 @@ export default function PalmCamera({ onCapture, onCancel, gender }: PalmCameraPr
 
         <TouchableOpacity
           onPress={handleCapture}
-          style={styles.captureBtn}
+          style={[styles.captureBtn, { borderColor: accentColor }]}
           disabled={capturing}
         >
           {capturing ? (
             <ActivityIndicator color="#fff" size="small" />
           ) : (
-            <View style={styles.captureBtnInner} />
+            <View style={[styles.captureBtnInner, { backgroundColor: accentColor }]} />
           )}
         </TouchableOpacity>
 
-        <View style={{ width: 52 }} />
+        <TouchableOpacity
+          onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}
+          style={styles.flipBtn}
+        >
+          <Ionicons name="camera-reverse" size={26} color="#fff" />
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  centered: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  permText: {
-    color: Colors.textSecondary,
-    fontSize: 14,
-    textAlign: 'center',
-    paddingHorizontal: 40,
-  },
-  permBtn: {
-    backgroundColor: Colors.purple,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  permBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  cancelText: {
-    color: Colors.textMuted,
-    fontSize: 14,
-  },
-  overlayContainer: {
+  container: { flex: 1, backgroundColor: '#000' },
+  centered: { flex: 1, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center', gap: 16 },
+  permText: { color: Colors.textSecondary, fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
+  permBtn: { backgroundColor: Colors.purple, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+  permBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  cancelText: { color: Colors.textMuted, fontSize: 14 },
+
+  // Face frame overlay
+  faceFrameContainer: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  guideCenter: {
+  faceFrameImage: {
+    width: FACE_FRAME_SIZE,
+    height: FACE_FRAME_SIZE,
+    opacity: 0.5,
+  },
+
+  // Palm scanner overlay - no dark bg, centered
+  scanOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -30,
   },
-  instructionBox: {
-    position: 'absolute',
-    top: 50,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  instructionText: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 14,
-    fontWeight: '600',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+  scanArea: {
+    width: SCAN_W,
+    height: SCAN_H,
     overflow: 'hidden',
   },
-  genderBadge: {
-    position: 'absolute',
-    top: 95,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  genderBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  controls: {
-    position: 'absolute',
-    bottom: 50,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: 30,
-  },
-  cancelBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  captureBtn: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 4,
-    borderColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  captureBtnInner: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: '#fff',
-  },
+
+  corner: { position: 'absolute', width: 40, height: 40, borderWidth: 3 },
+  cornerTL: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 12 },
+  cornerTR: { top: 0, right: 0, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 12 },
+  cornerBL: { bottom: 0, left: 0, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 12 },
+  cornerBR: { bottom: 0, right: 0, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 12 },
+  scanLine: { position: 'absolute', left: 0, right: 0, height: 3 },
+  scanLineGrad: { flex: 1 },
+  instructionBox: { position: 'absolute', top: 50, left: 0, right: 0, alignItems: 'center' },
+  instructionText: { color: 'rgba(255,255,255,0.9)', fontSize: 14, fontWeight: '600', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, overflow: 'hidden' },
+  modeBadge: { position: 'absolute', top: 95, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16 },
+  modeBadgeText: { fontSize: 12, fontWeight: '600' },
+  controls: { position: 'absolute', bottom: 50, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 30 },
+  cancelBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
+  captureBtn: { width: 72, height: 72, borderRadius: 36, borderWidth: 4, alignItems: 'center', justifyContent: 'center' },
+  captureBtnInner: { width: 58, height: 58, borderRadius: 29 },
+  flipBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
 });

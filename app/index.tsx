@@ -1,193 +1,116 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { useEffect } from 'react';
+import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withDelay,
+  Easing,
+} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
-import { useReading } from '../context/ReadingContext';
-import { Colors, Spacing } from '../constants/theme';
+import { Colors } from '../constants/theme';
 
-export default function HomeScreen() {
+const { width } = Dimensions.get('window');
+
+const LANGUAGE_KEY = 'palm_reader_language';
+const ONBOARDING_KEY = 'palm_reader_onboarded';
+const VIP_KEY = 'palm_reader_vip';
+
+export default function SplashIndex() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { setMode, clear } = useReading();
 
-  const handleSelectMode = (mode: 'palm' | 'face') => {
-    clear();
-    setMode(mode);
-    router.push('/capture');
-  };
+  const iconScale = useSharedValue(0.3);
+  const iconOpacity = useSharedValue(0);
+  const textOpacity = useSharedValue(0);
+  const textY = useSharedValue(20);
+  const loadingOpacity = useSharedValue(0);
+  const progressWidth = useSharedValue(0);
 
-  const handleNumerology = () => {
-    router.push('/numerology');
-  };
+  useEffect(() => {
+    // Animations
+    iconScale.value = withSpring(1, { damping: 12, stiffness: 80 });
+    iconOpacity.value = withTiming(1, { duration: 600 });
+    textOpacity.value = withDelay(400, withTiming(1, { duration: 500 }));
+    textY.value = withDelay(400, withTiming(0, { duration: 500 }));
+    loadingOpacity.value = withDelay(700, withTiming(1, { duration: 400 }));
+    progressWidth.value = withDelay(
+      800,
+      withTiming(100, { duration: 2500, easing: Easing.out(Easing.cubic) })
+    );
 
-  const handleHoroscope = () => {
-    router.push('/horoscope');
-  };
+    // Flow:
+    // 1st time: Splash → Language → Onboarding → Home
+    // Free user: Splash → Onboarding → Home
+    // VIP user: Splash → Home
+    const timer = setTimeout(async () => {
+      try {
+        const [lang, onboarded, vip] = await Promise.all([
+          AsyncStorage.getItem(LANGUAGE_KEY),
+          AsyncStorage.getItem(ONBOARDING_KEY),
+          AsyncStorage.getItem(VIP_KEY),
+        ]);
+
+        if (!lang) {
+          // First time ever — show language picker
+          router.replace('/language');
+        } else if (vip === 'true') {
+          // VIP user — skip onboarding, go straight to home
+          router.replace('/home');
+        } else {
+          // Free user — show onboarding (ads) then home
+          router.replace('/onboarding');
+        }
+      } catch {
+        router.replace('/language');
+      }
+    }, 3500);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const iconStyle = useAnimatedStyle(() => ({
+    opacity: iconOpacity.value,
+    transform: [{ scale: iconScale.value }],
+  }));
+  const textStyle = useAnimatedStyle(() => ({
+    opacity: textOpacity.value,
+    transform: [{ translateY: textY.value }],
+  }));
+  const loadStyle = useAnimatedStyle(() => ({ opacity: loadingOpacity.value }));
+  const barStyle = useAnimatedStyle(() => ({ width: `${progressWidth.value}%` }));
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Top Bar */}
-        <Animated.View entering={FadeInUp.duration(600)} style={styles.topBar}>
-          <Text style={styles.brandName}>MYSTIC</Text>
-          <View style={styles.topBarRight}>
-            <TouchableOpacity style={styles.vipBtn}>
-              <Ionicons name="shield-checkmark" size={14} color="#1a0f3d" />
-              <Text style={styles.vipText}>VIP</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuBtn}>
-              <Ionicons name="menu" size={20} color="rgba(255,255,255,0.6)" />
-            </TouchableOpacity>
-          </View>
+    <View style={styles.container}>
+      <View style={styles.centerContent}>
+        <View style={styles.glow} />
+        <Animated.View style={[styles.iconWrap, iconStyle]}>
+          <LinearGradient colors={['#7c3aed', '#8b5cf6']} style={styles.iconGrad}>
+            <Ionicons name="hand-left" size={48} color="#fff" />
+          </LinearGradient>
         </Animated.View>
-
-        {/* Subtitle */}
-        <Animated.Text entering={FadeInUp.delay(100).duration(600)} style={styles.subtitle}>
+        <Animated.Text style={[styles.appName, textStyle]}>PALM READER</Animated.Text>
+        <Animated.Text style={[styles.appSub, textStyle]}>
           Khám phá vận mệnh của bạn
         </Animated.Text>
+      </View>
 
-        {/* Mode Cards */}
-        <View style={styles.cardsContainer}>
-          {/* Palm Reading Card */}
-          <Animated.View entering={FadeInDown.delay(200).duration(600).springify().damping(18)}>
-          <TouchableOpacity
-            style={styles.modeCard}
-            activeOpacity={0.85}
-            onPress={() => handleSelectMode('palm')}
-          >
+      <Animated.View style={[styles.loadingArea, loadStyle]}>
+        <Text style={styles.adText}>Đang tải...</Text>
+        <View style={styles.progressTrack}>
+          <Animated.View style={[styles.progressFill, barStyle]}>
             <LinearGradient
-              colors={['#1e1145', '#2d1b69', '#1a0f3d']}
+              colors={['#7c3aed', '#8b5cf6']}
               start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.cardGradient}
-            >
-              <View style={[styles.cardIconArea, { backgroundColor: 'rgba(139,92,246,0.15)', borderColor: 'rgba(139,92,246,0.25)' }]}>
-                <MaterialCommunityIcons name="hand-back-left" size={32} color={Colors.purpleLight} />
-              </View>
-              <View style={styles.cardInfo}>
-                <Text style={styles.cardTitle}>Xem Chỉ Tay</Text>
-                <Text style={styles.cardDesc}>Phân tích đường vân tay, giải mã tính cách & vận mệnh</Text>
-                <View style={[styles.cardBadge, { backgroundColor: 'rgba(139,92,246,0.15)', borderColor: 'rgba(139,92,246,0.25)' }]}>
-                  <Ionicons name="star" size={10} color={Colors.purpleLight} />
-                  <Text style={[styles.badgeText, { color: Colors.purpleLight }]}>AI PALM SCAN</Text>
-                </View>
-              </View>
-              <LinearGradient
-                colors={['#7c3aed', '#8b5cf6']}
-                style={styles.cardCta}
-              >
-                <Ionicons name="chevron-forward" size={18} color="#fff" />
-              </LinearGradient>
-            </LinearGradient>
-          </TouchableOpacity>
-          </Animated.View>
-
-          {/* Face Reading Card */}
-          <Animated.View entering={FadeInDown.delay(350).duration(600).springify().damping(18)}>
-          <TouchableOpacity
-            style={styles.modeCard}
-            activeOpacity={0.85}
-            onPress={() => handleSelectMode('face')}
-          >
-            <LinearGradient
-              colors={['#1a1535', '#25163d', '#150e2d']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.cardGradient}
-            >
-              <View style={[styles.cardIconArea, { backgroundColor: 'rgba(236,72,153,0.12)', borderColor: 'rgba(236,72,153,0.25)' }]}>
-                <MaterialCommunityIcons name="face-recognition" size={32} color={Colors.pinkLight} />
-              </View>
-              <View style={styles.cardInfo}>
-                <Text style={styles.cardTitle}>Xem Tướng Mặt</Text>
-                <Text style={styles.cardDesc}>Nhận diện tướng mạo, khám phá tài lộc & nhân duyên</Text>
-                <View style={[styles.cardBadge, { backgroundColor: 'rgba(236,72,153,0.12)', borderColor: 'rgba(236,72,153,0.25)' }]}>
-                  <Ionicons name="star" size={10} color={Colors.pinkLight} />
-                  <Text style={[styles.badgeText, { color: Colors.pinkLight }]}>AI FACE SCAN</Text>
-                </View>
-              </View>
-              <LinearGradient
-                colors={['#db2777', '#ec4899']}
-                style={styles.cardCta}
-              >
-                <Ionicons name="chevron-forward" size={18} color="#fff" />
-              </LinearGradient>
-            </LinearGradient>
-          </TouchableOpacity>
-          </Animated.View>
-
-          {/* Numerology Card */}
-          <Animated.View entering={FadeInDown.delay(500).duration(600).springify().damping(18)}>
-          <TouchableOpacity
-            style={styles.modeCard}
-            activeOpacity={0.85}
-            onPress={handleNumerology}
-          >
-            <LinearGradient
-              colors={['#0f2027', '#203a43', '#2c5364']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.cardGradient}
-            >
-              <View style={[styles.cardIconArea, { backgroundColor: 'rgba(6,182,212,0.12)', borderColor: 'rgba(6,182,212,0.25)' }]}>
-                <MaterialCommunityIcons name="numeric" size={32} color="#06b6d4" />
-              </View>
-              <View style={styles.cardInfo}>
-                <Text style={styles.cardTitle}>Thần Số Học</Text>
-                <Text style={styles.cardDesc}>Giải mã cuộc đời qua con số ngày sinh và tên của bạn</Text>
-                <View style={[styles.cardBadge, { backgroundColor: 'rgba(6,182,212,0.12)', borderColor: 'rgba(6,182,212,0.25)' }]}>
-                  <Ionicons name="star" size={10} color="#06b6d4" />
-                  <Text style={[styles.badgeText, { color: '#06b6d4' }]}>NUMEROLOGY</Text>
-                </View>
-              </View>
-              <LinearGradient
-                colors={['#0891b2', '#06b6d4']}
-                style={styles.cardCta}
-              >
-                <Ionicons name="chevron-forward" size={18} color="#fff" />
-              </LinearGradient>
-            </LinearGradient>
-          </TouchableOpacity>
-          </Animated.View>
-
-          {/* Horoscope Card */}
-          <Animated.View entering={FadeInDown.delay(650).duration(600).springify().damping(18)}>
-          <TouchableOpacity
-            style={[styles.modeCard, { borderColor: 'rgba(245,158,11,0.2)' }]}
-            activeOpacity={0.85}
-            onPress={handleHoroscope}
-          >
-            <LinearGradient
-              colors={['#1a1408', '#2d2010', '#1f1505']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.cardGradient}
-            >
-              <View style={[styles.cardIconArea, { backgroundColor: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.25)' }]}>
-                <MaterialCommunityIcons name="zodiac-leo" size={32} color="#f59e0b" />
-              </View>
-              <View style={styles.cardInfo}>
-                <Text style={styles.cardTitle}>Cung Hoàng Đạo</Text>
-                <Text style={styles.cardDesc}>Tử vi hôm nay theo 12 cung hoàng đạo phương Tây</Text>
-                <View style={[styles.cardBadge, { backgroundColor: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.25)' }]}>
-                  <Ionicons name="star" size={10} color="#f59e0b" />
-                  <Text style={[styles.badgeText, { color: '#f59e0b' }]}>HOROSCOPE</Text>
-                </View>
-              </View>
-              <LinearGradient
-                colors={['#d97706', '#f59e0b']}
-                style={styles.cardCta}
-              >
-                <Ionicons name="chevron-forward" size={18} color="#fff" />
-              </LinearGradient>
-            </LinearGradient>
-          </TouchableOpacity>
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
           </Animated.View>
         </View>
-
-      </ScrollView>
+      </Animated.View>
     </View>
   );
 }
@@ -195,199 +118,64 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.bg,
-  },
-  topBar: {
-    flexDirection: 'row',
+    backgroundColor: 'transparent',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 14,
+    justifyContent: 'center',
   },
-  brandName: {
-    fontFamily: 'System',
-    fontSize: 20,
+  centerContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glow: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(139,92,246,0.12)',
+  },
+  iconWrap: {
+    marginBottom: 24,
+  },
+  iconGrad: {
+    width: width * 0.3,
+    height: width * 0.3,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appName: {
+    color: Colors.gold,
+    fontSize: 28,
     fontWeight: '900',
-    color: Colors.gold,
-    letterSpacing: 3,
-  },
-  topBarRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  vipBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: Colors.gold,
-  },
-  vipText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#1a0f3d',
-    letterSpacing: 1,
-  },
-  menuBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  subtitle: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    letterSpacing: 3,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-    marginTop: 12,
-    marginBottom: 4,
-    fontWeight: '300',
-  },
-  cardsContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    gap: 16,
-  },
-  modeCard: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(139,92,246,0.2)',
-  },
-  cardGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 22,
-    gap: 16,
-  },
-  cardIconArea: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  cardInfo: {
-    flex: 1,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  cardDesc: {
-    fontSize: 12.5,
-    color: Colors.textMuted,
-    lineHeight: 18,
-  },
-  cardBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 4,
-    marginTop: 10,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  cardCta: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  insightStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginHorizontal: 20,
-    marginTop: 24,
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: 'rgba(212,175,55,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.12)',
-  },
-  insightIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(212,175,55,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  insightText: {
-    flex: 1,
-  },
-  insightTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.gold,
-    marginBottom: 2,
-  },
-  insightDesc: {
-    fontSize: 11,
-    color: Colors.textDim,
-    lineHeight: 16,
-  },
-  featuresRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    marginTop: 24,
-  },
-  featItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  featIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    letterSpacing: 4,
     marginBottom: 8,
   },
-  featLabel: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  powered: {
-    fontSize: 10,
-    color: Colors.textDim,
+  appSub: {
+    color: Colors.textMuted,
+    fontSize: 13,
     letterSpacing: 2,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-    marginTop: 28,
-    marginBottom: 44,
   },
-  poweredHighlight: {
-    color: Colors.purple,
-    fontWeight: '600',
+  loadingArea: {
+    width: 240,
+    alignItems: 'center',
+    marginBottom: 100,
+  },
+  adText: {
+    color: Colors.textDim,
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  progressTrack: {
+    width: '100%',
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+    overflow: 'hidden',
   },
 });

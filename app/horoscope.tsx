@@ -21,9 +21,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Colors } from '../constants/theme';
 import { ZODIAC_SIGNS, ELEMENT_COLORS, getSignFromDate } from '../constants/horoscopeData';
+import BannerAdComponent from '../components/ads/BannerAdComponent';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-const CARD_SIZE = (SCREEN_W - 60 - 24) / 3; // 3 per row, with gaps
+const CARD_SIZE = (SCREEN_W - 40 - 24) / 3; // 3 per row: screenW - (paddingH 20*2) - (2 gaps * 12)
 
 type Tab = 'pick' | 'birthday';
 
@@ -69,13 +70,14 @@ export default function HoroscopeScreen() {
       {/* Tab Switcher */}
       <View style={styles.tabRow}>
         <TouchableOpacity
+
           style={[styles.tab, tab === 'pick' && styles.tabActive]}
           onPress={() => setTab('pick')}
         >
           <Ionicons
             name="grid-outline"
             size={16}
-            color={tab === 'pick' ? '#f59e0b' : Colors.textMuted}
+            color={tab === 'pick' ? '#06b6d4' : Colors.textMuted}
           />
           <Text style={[styles.tabText, tab === 'pick' && styles.tabTextActive]}>
             Chọn cung
@@ -88,7 +90,7 @@ export default function HoroscopeScreen() {
           <Ionicons
             name="calendar-outline"
             size={16}
-            color={tab === 'birthday' ? '#f59e0b' : Colors.textMuted}
+            color={tab === 'birthday' ? '#06b6d4' : Colors.textMuted}
           />
           <Text style={[styles.tabText, tab === 'birthday' && styles.tabTextActive]}>
             Theo ngày sinh
@@ -174,6 +176,7 @@ export default function HoroscopeScreen() {
           </>
         ) : (
           /* Birthday Input */
+          <>
           <Animated.View entering={FadeInDown.duration(400)} style={styles.birthdayCard}>
             <Text style={styles.birthdayTitle}>Nhập ngày sinh của bạn</Text>
             <Text style={styles.birthdayDesc}>
@@ -215,7 +218,7 @@ export default function HoroscopeScreen() {
               onPress={handleBirthdayLookup}
             >
               <LinearGradient
-                colors={['#f59e0b', '#d97706']}
+                colors={['#06b6d4', '#0891b2']}
                 style={styles.lookupGrad}
               >
                 <Ionicons name="search" size={18} color="#fff" />
@@ -223,35 +226,40 @@ export default function HoroscopeScreen() {
               </LinearGradient>
             </TouchableOpacity>
           </Animated.View>
+
+          </>
         )}
       </ScrollView>
 
-      {/* Bottom CTA */}
-      {selectedSign && tab === 'pick' && (
-        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
-          <TouchableOpacity activeOpacity={0.85} onPress={handleContinue}>
-            <LinearGradient
-              colors={['#f59e0b', '#d97706']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.ctaBtn}
-            >
-              <Ionicons name="sparkles" size={20} color="#fff" />
-              <Text style={styles.ctaText}>Xem Tử Vi Hôm Nay</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      )}
+      {/* Bottom: CTA + Banner Ad */}
+      <View style={styles.bottomFixed}>
+        {selectedSign && tab === 'pick' && (
+          <View style={styles.bottomBar}>
+            <TouchableOpacity activeOpacity={0.85} onPress={handleContinue}>
+              <LinearGradient
+                colors={['#06b6d4', '#0891b2']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.ctaBtn}
+              >
+                <Ionicons name="sparkles" size={20} color="#fff" />
+                <Text style={styles.ctaText}>Xem Tử Vi Hôm Nay</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        )}
+        <BannerAdComponent />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bg },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
@@ -262,17 +270,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.textPrimary,
     letterSpacing: 0.5,
   },
   tabRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     marginHorizontal: 20,
     marginBottom: 8,
     backgroundColor: Colors.surface,
@@ -283,31 +291,32 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
     paddingVertical: 10,
     borderRadius: 10,
   },
   tabActive: {
-    backgroundColor: 'rgba(245,158,11,0.12)',
+    backgroundColor: "#06b6d41f",
   },
   tabText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Colors.textMuted,
   },
   tabTextActive: {
-    color: '#f59e0b',
+    color: "#06b6d4",
   },
   scroll: {
     paddingHorizontal: 20,
-    paddingBottom: 120,
+    paddingBottom: 150,
   },
   grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
     gap: 12,
     marginTop: 12,
   },
@@ -316,7 +325,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 8,
     borderRadius: 18,
-    alignItems: 'center',
+    alignItems: "center",
     borderWidth: 1.5,
   },
   signSymbol: {
@@ -325,7 +334,7 @@ const styles = StyleSheet.create({
   },
   signName: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.textPrimary,
     marginBottom: 2,
   },
@@ -334,26 +343,26 @@ const styles = StyleSheet.create({
     color: Colors.textDim,
   },
   checkMark: {
-    position: 'absolute',
+    position: "absolute",
     top: 6,
     right: 6,
     width: 18,
     height: 18,
     borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   selectedDetail: {
     marginTop: 20,
     padding: 20,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
     borderColor: Colors.border,
   },
   detailHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 14,
     marginBottom: 14,
   },
@@ -362,7 +371,7 @@ const styles = StyleSheet.create({
   },
   detailName: {
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.textPrimary,
   },
   detailSub: {
@@ -371,7 +380,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   traitRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   traitBadge: {
@@ -382,104 +391,109 @@ const styles = StyleSheet.create({
   },
   traitText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   birthdayCard: {
     marginTop: 20,
     padding: 24,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
     borderColor: Colors.border,
-    alignItems: 'center',
+    alignItems: "center",
   },
   birthdayTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.textPrimary,
     marginBottom: 8,
   },
   birthdayDesc: {
     fontSize: 13,
     color: Colors.textMuted,
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: 24,
     lineHeight: 20,
   },
   inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     marginBottom: 24,
   },
   inputGroup: {
-    alignItems: 'center',
+    alignItems: "center",
   },
   inputLabel: {
     fontSize: 11,
     color: Colors.textMuted,
     marginBottom: 6,
-    fontWeight: '600',
-    textTransform: 'uppercase',
+    fontWeight: "600",
+    textTransform: "uppercase",
     letterSpacing: 1,
   },
   input: {
     width: 80,
     height: 56,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
     borderColor: Colors.border,
-    textAlign: 'center',
+    textAlign: "center",
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.textPrimary,
   },
   inputSep: {
     fontSize: 28,
     color: Colors.textDim,
     marginTop: 20,
-    fontWeight: '300',
+    fontWeight: "300",
   },
   lookupBtn: {
-    width: '100%',
+    width: "100%",
     borderRadius: 16,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   lookupGrad: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     paddingVertical: 14,
   },
   lookupText: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#fff',
+    fontWeight: "700",
+    color: "#fff",
   },
-  bottomBar: {
+  bottomFixed: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
+    alignItems: 'center',
+  },
+  bottomBar: {
+    width: '100%',
     paddingHorizontal: 20,
     paddingTop: 12,
-    backgroundColor: 'rgba(6,6,14,0.95)',
+    paddingBottom: 8,
+    backgroundColor: "rgba(6,6,14,0.95)",
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
   ctaBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 10,
     paddingVertical: 16,
     borderRadius: 16,
   },
   ctaText: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+    fontWeight: "700",
+    color: "#fff",
   },
 });

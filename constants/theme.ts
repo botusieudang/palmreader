@@ -1,5 +1,5 @@
 export const Colors = {
-  bg: '#06060e',
+  bg: '#0b0516ff',
   cardPalm: '#1e1145',
   cardFace: '#1a1535',
   purple: '#8b5cf6',
@@ -15,6 +15,7 @@ export const Colors = {
   textDim: 'rgba(255,255,255,0.25)',
   border: 'rgba(255,255,255,0.08)',
   surface: 'rgba(255,255,255,0.06)',
+
 };
 
 export const Spacing = {

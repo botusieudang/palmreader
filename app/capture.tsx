@@ -1,35 +1,177 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Dimensions } from 'react-native';
+import { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  Dimensions,
+  Modal,
+  Alert,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  withDelay,
+  withSequence,
+  FadeIn,
+  FadeInUp,
+  Easing,
+} from 'react-native-reanimated';
+import FaceDetection from '@react-native-ml-kit/face-detection';
 import { useReading } from '../context/ReadingContext';
-import { getReading } from '../services/api';
 import { Colors } from '../constants/theme';
-import { BASE_HAND_PATH, REFERENCE_LINE_PATHS } from '../constants/palmQuizData';
+import { getRandomReading } from '../constants/readingResults';
 import PalmCamera from '../components/PalmCamera';
-import type { Gender } from '../types/reading';
+import BannerAdComponent from '../components/ads/BannerAdComponent';
 
-const { width: SCREEN_W } = Dimensions.get('window');
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const IS_SHORT_SCREEN = SCREEN_H < 750;
+
+// Fake analysis popup
+function AnalyzingModal({
+  visible,
+  mode,
+  onDone,
+}: {
+  visible: boolean;
+  mode: 'palm' | 'face';
+  onDone: () => void;
+}) {
+  const progress = useSharedValue(0);
+  const dotOpacity1 = useSharedValue(0.3);
+  const dotOpacity2 = useSharedValue(0.3);
+  const dotOpacity3 = useSharedValue(0.3);
+  const [statusText, setStatusText] = useState('Đang quét hình ảnh...');
+
+  useEffect(() => {
+    if (!visible) return;
+
+    progress.value = withTiming(100, { duration: 4500, easing: Easing.out(Easing.cubic) });
+
+    dotOpacity1.value = withRepeat(
+      withSequence(withTiming(1, { duration: 400 }), withTiming(0.3, { duration: 400 })), -1
+    );
+    dotOpacity2.value = withDelay(200,
+      withRepeat(withSequence(withTiming(1, { duration: 400 }), withTiming(0.3, { duration: 400 })), -1)
+    );
+    dotOpacity3.value = withDelay(400,
+      withRepeat(withSequence(withTiming(1, { duration: 400 }), withTiming(0.3, { duration: 400 })), -1)
+    );
+
+    const t1 = setTimeout(() => setStatusText(mode === 'palm' ? 'Phân tích đường chỉ tay...' : 'Phân tích khuôn mặt...'), 1200);
+    const t2 = setTimeout(() => setStatusText(mode === 'palm' ? 'Đọc đường tâm đạo, trí đạo...' : 'Nhận diện ngũ quan...'), 2500);
+    const t3 = setTimeout(() => setStatusText('Tổng hợp kết quả...'), 3800);
+    const t4 = setTimeout(() => onDone(), 5000);
+
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
+  }, [visible]);
+
+  const progressStyle = useAnimatedStyle(() => ({ width: `${progress.value}%` }));
+  const dot1Style = useAnimatedStyle(() => ({ opacity: dotOpacity1.value }));
+  const dot2Style = useAnimatedStyle(() => ({ opacity: dotOpacity2.value }));
+  const dot3Style = useAnimatedStyle(() => ({ opacity: dotOpacity3.value }));
+  const accentColor = mode === 'palm' ? '#8b5cf6' : '#ec4899';
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={modalStyles.overlay}>
+        <View style={modalStyles.card}>
+          <View style={[modalStyles.glow, { backgroundColor: `${accentColor}20` }]} />
+          <Animated.View entering={FadeIn.duration(500)} style={[modalStyles.iconWrap, { backgroundColor: `${accentColor}15` }]}>
+            <Ionicons name={mode === 'palm' ? 'scan' : 'eye'} size={36} color={accentColor} />
+          </Animated.View>
+          <Animated.Text entering={FadeInUp.delay(200).duration(400)} style={modalStyles.title}>Đang Phân Tích</Animated.Text>
+          <View style={modalStyles.statusRow}>
+            <Text style={modalStyles.statusText}>{statusText}</Text>
+            <View style={modalStyles.dots}>
+              <Animated.View style={[modalStyles.dot, dot1Style]} />
+              <Animated.View style={[modalStyles.dot, dot2Style]} />
+              <Animated.View style={[modalStyles.dot, dot3Style]} />
+            </View>
+          </View>
+          <View style={modalStyles.progressTrack}>
+            <Animated.View style={[modalStyles.progressFill, { backgroundColor: accentColor }, progressStyle]} />
+          </View>
+          <View style={modalStyles.items}>
+            {(mode === 'palm'
+              ? ['Tâm đạo', 'Trí đạo', 'Sinh đạo', 'Sự nghiệp']
+              : ['Trán', 'Mắt', 'Mũi', 'Miệng']
+            ).map((item, i) => (
+              <Animated.View key={item} entering={FadeInUp.delay(600 + i * 300).duration(400)} style={modalStyles.item}>
+                <Ionicons name="checkmark-circle" size={16} color={accentColor} />
+                <Text style={modalStyles.itemText}>{item}</Text>
+              </Animated.View>
+            ))}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export default function CaptureScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { mode, gender, setGender, setImage, imageUri, imageBase64, setResult } = useReading();
-  const [loading, setLoading] = useState(false);
+  const { mode: rawMode, setImage, imageUri, setResult } = useReading();
+  const mode = rawMode as 'palm' | 'face';
   const [error, setError] = useState<string | null>(null);
-  const [showPalmCamera, setShowPalmCamera] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const isPalm = mode === 'palm';
   const accentColor = isPalm ? Colors.purple : Colors.pink;
 
+  // Detect face using Google ML Kit Face Detection
+  const detectFace = async (uri: string): Promise<boolean> => {
+    try {
+      const faces = await FaceDetection.detect(uri, {
+        landmarkMode: 'none',
+        contourMode: 'none',
+        classificationMode: 'none',
+        performanceMode: 'fast',
+      });
+      console.log('Face detection result:', faces.length, 'faces found');
+      return faces.length > 0;
+    } catch (e) {
+      console.warn('Face detection error:', e);
+      // Nếu module lỗi → reject luôn, yêu cầu prebuild
+      return false;
+    }
+  };
+
+  // Palm: luôn cho qua
+  const detectHand = async (): Promise<boolean> => {
+    return true;
+  };
+
+  // Validate image: face detection cho mặt, tay luôn cho qua
+  const validateImage = async (uri: string): Promise<boolean> => {
+    if (isPalm) {
+      return await detectHand();
+    } else {
+      return await detectFace(uri);
+    }
+  };
+
+  const showDetectionError = () => {
+    const title = isPalm ? 'Không tìm thấy bàn tay' : 'Không tìm thấy khuôn mặt';
+    const msg = isPalm
+      ? 'Không tìm thấy bàn tay trong ảnh. Vui lòng chụp lại với lòng bàn tay rõ ràng.'
+      : 'Không tìm thấy khuôn mặt trong ảnh. Vui lòng chụp lại với khuôn mặt rõ ràng.';
+    Alert.alert(title, msg, [{ text: 'Thử lại', style: 'default' }]);
+  };
+
   const pickImage = async (useCamera: boolean) => {
-    // For palm mode camera, use custom PalmCamera with guide overlay
-    if (useCamera && isPalm) {
-      setShowPalmCamera(true);
+    if (useCamera) {
+      setShowCamera(true);
       return;
     }
 
@@ -41,240 +183,174 @@ export default function CaptureScreen() {
       aspect: [1, 1],
     };
 
-    const result = useCamera
-      ? await ImagePicker.launchCameraAsync(options)
-      : await ImagePicker.launchImageLibraryAsync(options);
+    const result = await ImagePicker.launchImageLibraryAsync(options);
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
       if (asset.base64 && asset.uri) {
+        const isValid = await validateImage(asset.uri);
+        if (!isValid) {
+          showDetectionError();
+          return;
+        }
         setImage(asset.base64, asset.uri);
         setError(null);
       }
     }
   };
 
-  const handlePalmCapture = (base64: string, uri: string) => {
-    setImage(base64, uri);
-    setShowPalmCamera(false);
-    setError(null);
-  };
-
-  const handleAnalyze = async () => {
-    if (!imageBase64) return;
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await getReading(mode, imageBase64);
-      if (response.success && response.reading) {
-        setResult(response.reading);
-        router.push('/result');
-      } else {
-        setError(response.error || 'Không thể phân tích. Vui lòng thử lại.');
-      }
-    } catch (e: any) {
-      setError(e.message || 'Lỗi kết nối. Kiểm tra mạng và thử lại.');
-    } finally {
-      setLoading(false);
+  const handleCapture = async (base64: string, uri: string) => {
+    const isValid = await validateImage(uri);
+    if (!isValid) {
+      showDetectionError();
+      setShowCamera(false);
+      return;
     }
+    setImage(base64, uri);
+    setShowCamera(false);
+    setError(null);
   };
 
-  // Show custom palm camera with guide overlay
-  if (showPalmCamera) {
+  const handleAnalyze = () => {
+    setAnalyzing(true);
+  };
+
+  const handleAnalysisDone = () => {
+    setAnalyzing(false);
+    const reading = getRandomReading(mode);
+    setResult(reading);
+    router.push('/result');
+  };
+
+  // Camera view (palm with scanner, face without scanner)
+  if (showCamera) {
     return (
       <PalmCamera
-        onCapture={handlePalmCapture}
-        onCancel={() => setShowPalmCamera(false)}
-        gender={gender || 'male'}
+        onCapture={handleCapture}
+        onCancel={() => setShowCamera(false)}
+        mode={mode}
       />
-    );
-  }
-
-  // Gender selection step for palm mode
-  if (isPalm && !gender) {
-    return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={22} color={Colors.textSecondary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Xem Chỉ Tay</Text>
-          <View style={{ width: 36 }} />
-        </View>
-
-        {/* Gender selection */}
-        <View style={styles.genderContainer}>
-          <Text style={styles.genderTitle}>Bạn là Nam hay Nữ?</Text>
-          <Text style={styles.genderSubtitle}>
-            Chọn giới tính để hiển thị khung tay phù hợp
-          </Text>
-
-          <View style={styles.genderOptions}>
-            {/* Male - Left hand */}
-            <TouchableOpacity
-              style={styles.genderCard}
-              activeOpacity={0.7}
-              onPress={() => setGender('male')}
-            >
-              <LinearGradient
-                colors={['rgba(139,92,246,0.15)', 'rgba(139,92,246,0.05)']}
-                style={styles.genderCardGradient}
-              >
-                <View style={styles.genderIconWrap}>
-                  <Svg width="100%" height="100%" viewBox="0 0 300 320">
-                    <Path d={BASE_HAND_PATH} fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth={2} strokeLinejoin="round" />
-                    {Object.entries(REFERENCE_LINE_PATHS).map(([k, l]) => (
-                      <Path key={k} d={l.d} fill="none" stroke={l.color} strokeWidth={2} strokeLinecap="round" opacity={0.5} />
-                    ))}
-                  </Svg>
-                </View>
-                <Text style={styles.genderLabel}>Nam</Text>
-                <Text style={styles.genderHint}>Tay trái</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Female - Right hand (flipped) */}
-            <TouchableOpacity
-              style={styles.genderCard}
-              activeOpacity={0.7}
-              onPress={() => setGender('female')}
-            >
-              <LinearGradient
-                colors={['rgba(236,72,153,0.15)', 'rgba(236,72,153,0.05)']}
-                style={styles.genderCardGradient}
-              >
-                <View style={[styles.genderIconWrap, { transform: [{ scaleX: -1 }] }]}>
-                  <Svg width="100%" height="100%" viewBox="0 0 300 320">
-                    <Path d={BASE_HAND_PATH} fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth={2} strokeLinejoin="round" />
-                    {Object.entries(REFERENCE_LINE_PATHS).map(([k, l]) => (
-                      <Path key={k} d={l.d} fill="none" stroke={l.color} strokeWidth={2} strokeLinecap="round" opacity={0.5} />
-                    ))}
-                  </Svg>
-                </View>
-                <Text style={styles.genderLabel}>Nữ</Text>
-                <Text style={styles.genderHint}>Tay phải</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
     );
   }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <AnalyzingModal visible={analyzing} mode={mode} onDone={handleAnalysisDone} />
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={Colors.textSecondary} />
+          <Ionicons name="chevron-back" size={22} color={Colors.textSecondary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {isPalm ? 'Xem Chỉ Tay' : 'Xem Tướng Mặt'}
-        </Text>
+        <Text style={styles.headerTitle}>{isPalm ? 'Xem Chỉ Tay' : 'Xem Tướng Mặt'}</Text>
         <View style={{ width: 36 }} />
       </View>
 
-      {/* Guide text */}
-      <View style={styles.guideBox}>
-        <Ionicons name="information-circle-outline" size={18} color={accentColor} />
-        <Text style={styles.guideText}>
-          {isPalm
-            ? 'Đặt lòng bàn tay ngửa lên, chụp rõ các đường chỉ tay'
-            : 'Chụp thẳng mặt, ánh sáng đều, không đội mũ'}
-        </Text>
-      </View>
-
-      {/* Image Preview Area */}
-      <View style={styles.previewArea}>
-        {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.previewImage} />
-        ) : (
-          <View style={styles.placeholder}>
-            <Ionicons
-              name={isPalm ? 'hand-left-outline' : 'person-outline'}
-              size={64}
-              color="rgba(255,255,255,0.1)"
+      {imageUri ? (
+        /* ===== HAS IMAGE: show preview + analyze ===== */
+        <>
+          <View style={styles.previewArea}>
+            <Image source={{ uri: imageUri }} style={styles.previewImage} />
+            <LinearGradient
+              colors={['transparent', 'rgba(6,6,14,0.7)']}
+              style={styles.previewOverlay}
             />
-            <Text style={styles.placeholderText}>
-              Chụp ảnh hoặc chọn từ thư viện
-            </Text>
           </View>
-        )}
-      </View>
-
-      {/* Action Buttons */}
-      <View style={styles.actions}>
-        {!imageUri ? (
-          <>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => pickImage(true)}
-            >
+          <View style={styles.actions}>
+            <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={handleAnalyze}>
               <LinearGradient
                 colors={isPalm ? ['#7c3aed', '#8b5cf6'] : ['#db2777', '#ec4899']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                 style={styles.actionBtnGradient}
               >
-                <Ionicons name="camera" size={22} color="#fff" />
-                <Text style={styles.actionBtnText}>Chụp Ảnh</Text>
+                <Ionicons name="sparkles" size={22} color="#fff" />
+                <Text style={styles.actionBtnText}>Phân Tích</Text>
               </LinearGradient>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => pickImage(false)}
-            >
-              <View style={styles.actionBtnOutline}>
-                <Ionicons name="images" size={22} color={accentColor} />
-                <Text style={[styles.actionBtnText, { color: accentColor }]}>Thư Viện</Text>
-              </View>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            {isPalm ? (
-              /* Palm mode: go to quiz */
-              <TouchableOpacity
-                style={[styles.actionBtn, { flex: 1 }]}
-                onPress={() => router.push('/quiz')}
-              >
-                <LinearGradient
-                  colors={['#7c3aed', '#8b5cf6']}
-                  style={styles.actionBtnGradient}
-                >
-                  <Ionicons name="list" size={22} color="#fff" />
-                  <Text style={styles.actionBtnText}>Tiếp Tục</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            ) : (
-              /* Face mode: go to face quiz */
-              <TouchableOpacity
-                style={[styles.actionBtn, { flex: 1 }]}
-                onPress={() => router.push('/face-quiz')}
-              >
-                <LinearGradient
-                  colors={['#db2777', '#ec4899']}
-                  style={styles.actionBtnGradient}
-                >
-                  <Ionicons name="list" size={22} color="#fff" />
-                  <Text style={styles.actionBtnText}>Tiếp Tục</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={styles.retakeBtn}
-              onPress={() => setImage('', '')}
-              disabled={loading}
-            >
+            <TouchableOpacity style={styles.retakeBtn} onPress={() => setImage('', '')}>
               <Ionicons name="refresh" size={20} color={Colors.textSecondary} />
             </TouchableOpacity>
-          </>
-        )}
-      </View>
+          </View>
+          {/* Banner Ad bottom */}
+          <View style={styles.bannerAdWrap}>
+            <BannerAdComponent />
+          </View>
+        </>
+      ) : (
+        /* ===== NO IMAGE: nice picker UI ===== */
+        <View style={styles.pickerContainer}>
+          {/* Hero icon */}
+          <Animated.View
+            entering={FadeInUp.delay(100).duration(600).springify().damping(18)}
+            style={styles.heroSection}
+          >
+            <View style={[styles.heroGlow, { backgroundColor: `${accentColor}12` }]} />
+            <LinearGradient
+              colors={isPalm ? ['#1e1145', '#2d1b69'] : ['#1a1535', '#25163d']}
+              style={styles.heroIcon}
+            >
+              <Ionicons
+                name={isPalm ? 'hand-left' : 'person'}
+                size={56}
+                color={accentColor}
+              />
+            </LinearGradient>
+            <Text style={styles.heroTitle}>
+              {isPalm ? 'Chụp Lòng Bàn Tay' : 'Chụp Khuôn Mặt'}
+            </Text>
+            <Text style={styles.heroDesc}>
+              {isPalm
+                ? 'Đặt lòng bàn tay ngửa lên, chụp rõ các đường chỉ tay'
+                : 'Chụp thẳng mặt, ánh sáng đều, không đội mũ'}
+            </Text>
+          </Animated.View>
 
-      {/* Error */}
+          {/* Two option cards */}
+          <View style={styles.optionCards}>
+            <Animated.View style={{ flex: 1 }} entering={FadeInUp.delay(300).duration(500).springify().damping(18)}>
+              <TouchableOpacity
+                style={styles.optionCard}
+                activeOpacity={0.8}
+                onPress={() => pickImage(true)}
+              >
+                <LinearGradient
+                  colors={isPalm ? ['#7c3aed', '#8b5cf6'] : ['#db2777', '#ec4899']}
+                  style={styles.optionIconWrap}
+                >
+                  <Ionicons name="camera" size={28} color="#fff" />
+                </LinearGradient>
+                <Text style={styles.optionTitle}>Chụp Ảnh</Text>
+                <Text style={styles.optionDesc}>
+                  {isPalm ? 'Mở camera sau' : 'Mở camera trước'}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
+
+            <Animated.View style={{ flex: 1 }} entering={FadeInUp.delay(450).duration(500).springify().damping(18)}>
+              <TouchableOpacity
+                style={styles.optionCard}
+                activeOpacity={0.8}
+                onPress={() => pickImage(false)}
+              >
+                <LinearGradient
+                  colors={isPalm ? ['#7c3aed', '#8b5cf6'] : ['#db2777', '#ec4899']}
+                  style={styles.optionIconWrap}
+                >
+                  <Ionicons name="images" size={28} color="#fff" />
+                </LinearGradient>
+                <Text style={styles.optionTitle}>Thư Viện</Text>
+                <Text style={styles.optionDesc}>Chọn ảnh có sẵn</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
+
+          {/* Native Ad */}
+          <View style={styles.adWrap}>
+            <NativeAdComponent />
+          </View>
+        </View>
+      )}
+
       {error && (
         <View style={styles.errorBox}>
           <Ionicons name="alert-circle" size={16} color="#ef4444" />
@@ -285,196 +361,129 @@ export default function CaptureScreen() {
   );
 }
 
-const CARD_SIZE = (SCREEN_W - 60) / 2;
+const modalStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', alignItems: 'center', justifyContent: 'center' },
+  card: { width: SCREEN_W * 0.85, borderRadius: 28, backgroundColor: '#121218', padding: 32, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
+  glow: { position: 'absolute', top: -40, width: 160, height: 160, borderRadius: 80 },
+  iconWrap: { width: 72, height: 72, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  title: { fontSize: 20, fontWeight: '800', color: '#fff', marginBottom: 8 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 20 },
+  statusText: { fontSize: 13, color: 'rgba(255,255,255,0.5)' },
+  dots: { flexDirection: 'row', gap: 4 },
+  dot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: 'rgba(255,255,255,0.6)' },
+  progressTrack: { width: '100%', height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 24, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 3 },
+  items: { width: '100%', gap: 10 },
+  item: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  itemText: { fontSize: 14, color: 'rgba(255,255,255,0.7)' },
+});
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-  },
+  container: { flex: 1, backgroundColor: Colors.bg },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 14,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+    alignItems: 'center', justifyContent: 'center',
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  // Gender selection styles
-  genderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 60,
-  },
-  genderTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 8,
-  },
-  genderSubtitle: {
-    fontSize: 14,
-    color: Colors.textMuted,
-    marginBottom: 40,
-    textAlign: 'center',
-  },
-  genderOptions: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  genderCard: {
-    width: CARD_SIZE,
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-  },
-  genderCardGradient: {
-    alignItems: 'center',
-    paddingVertical: 28,
-    paddingHorizontal: 16,
-  },
-  genderIconWrap: {
-    width: CARD_SIZE - 48,
-    height: CARD_SIZE - 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  genderHandIcon: {
-    width: '100%',
-    height: '100%',
-    opacity: 0.85,
-  },
-  genderLabel: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  genderHint: {
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  // Rest of styles
-  guideBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  guideText: {
-    flex: 1,
-    fontSize: 12,
-    color: Colors.textMuted,
-    lineHeight: 18,
-  },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary },
+
+  // Preview (when image exists)
   previewArea: {
-    flex: 1,
-    marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderWidth: 1,
-    borderColor: Colors.border,
+    marginHorizontal: 20, marginTop: 10, borderRadius: 24,
+    height: IS_SHORT_SCREEN ? '50%' : '70%',
+    overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1, borderColor: Colors.border,
   },
-  previewImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
+  previewImage: { width: '100%', height: '100%', resizeMode: 'cover' },
+  previewOverlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: 80,
   },
-  placeholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  placeholderText: {
-    fontSize: 13,
-    color: Colors.textDim,
-  },
+
+  // Actions (when image exists)
   actions: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 40,
+    flexDirection: 'row', gap: 12,
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16,
   },
-  actionBtn: {
-    flex: 1,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
+  actionBtn: { flex: 1, borderRadius: 16, overflow: 'hidden' },
   actionBtnGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 16,
   },
-  actionBtnOutline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: 'rgba(139,92,246,0.3)',
-  },
-  actionBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#fff',
-  },
+  actionBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   retakeBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 52, height: 52, borderRadius: 16,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+    alignItems: 'center', justifyContent: 'center',
   },
+
+  // Picker (no image yet)
+  pickerContainer: {
+    flex: 1, justifyContent: 'flex-start', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 120,
+  },
+  heroSection: {
+    alignItems: 'center', marginBottom: 40,
+  },
+  heroGlow: {
+    position: 'absolute', width: 180, height: 180, borderRadius: 90, top: -20,
+  },
+  heroIcon: {
+    width: 120, height: 120, borderRadius: 36,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 20,
+  },
+  heroTitle: {
+    fontSize: 22, fontWeight: '800', color: Colors.textPrimary, marginBottom: 8,
+  },
+  heroDesc: {
+    fontSize: 14, color: Colors.textMuted, textAlign: 'center',
+    lineHeight: 22, paddingHorizontal: 20,
+  },
+  optionCards: {
+    flexDirection: 'row', gap: 14,
+  },
+  optionCard: {
+    alignItems: 'center',
+    paddingVertical: 28, paddingHorizontal: 12,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  optionIconWrap: {
+    width: 60, height: 60, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+  },
+  optionTitle: {
+    fontSize: 16, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4,
+  },
+  optionDesc: {
+    fontSize: 12, color: Colors.textDim, textAlign: 'center', lineHeight: 17,
+  },
+
+  // Banner ad on preview screen
+  bannerAdWrap: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+
+  // Native ad on picker screen
+  adWrap: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+
+  // Error
   errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 20,
-    marginBottom: 20,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: 'rgba(239,68,68,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.2)',
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 20, marginBottom: 20, padding: 12, borderRadius: 12,
+    backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)',
   },
-  errorText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#ef4444',
-  },
+  errorText: { flex: 1, fontSize: 12, color: '#ef4444' },
 });
